@@ -319,7 +319,9 @@ def _click_row(browser: FolderBrowser, name: str) -> None:
 def _record_selection(browser: FolderBrowser) -> list[Path | None]:
     """image_selected로 받은 값을 차례로 담는 목록을 반환한다."""
     received: list[Path | None] = []
-    browser.image_selected.connect(received.append)
+    browser.images_selected.connect(
+        lambda paths: received.append(paths[0] if paths else None)
+    )
     return received
 
 
@@ -381,7 +383,7 @@ def test_clicking_folder_enters_without_selecting(browser: FolderBrowser) -> Non
 def test_deleted_image_clears_selection(browser: FolderBrowser) -> None:
     """선택한 사진이 지워지면 선택이 풀리는지 확인한다."""
     _click_icon(browser, "a.png")
-    selected = browser._selected_image
+    selected = browser._selected_images[0]
     received = _record_selection(browser)
 
     selected.unlink()
@@ -393,7 +395,7 @@ def test_deleted_image_clears_selection(browser: FolderBrowser) -> None:
 def test_other_file_change_keeps_selection(browser: FolderBrowser) -> None:
     """다른 파일이 지워져 목록을 다시 그려도 선택이 유지되는지 확인한다."""
     _click_icon(browser, "a.png")
-    selected = browser._selected_image
+    selected = browser._selected_images[0]
     received = _record_selection(browser)
 
     (selected.parent / "b.png").unlink()

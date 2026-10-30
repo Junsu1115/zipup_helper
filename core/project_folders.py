@@ -2,7 +2,7 @@
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 PROJECT_ROOT = Path("/Users/zipup/Project")
@@ -85,6 +85,20 @@ def create_project_folder(
     return cleaned_name
 
 
+def _subfolder_paths(project: Path) -> Iterator[Path]:
+    """SUBFOLDER_TREE의 폴더 경로를 상위 폴더부터 차례로 반환한다."""
+    for subfolder_name, child_names in SUBFOLDER_TREE.items():
+        subfolder = project / subfolder_name
+        yield subfolder
+        for child_name in child_names:
+            yield subfolder / child_name
+
+
+def has_missing_subfolders(project: Path) -> bool:
+    """SUBFOLDER_TREE 중 project에 없는 폴더가 하나라도 있는지 반환한다."""
+    return any(not folder.is_dir() for folder in _subfolder_paths(project))
+
+
 def add_missing_subfolders(project: Path) -> int:
     """SUBFOLDER_TREE 중 project에 없는 폴더만 만들고, 만든 폴더 수를 반환한다.
 
@@ -92,10 +106,8 @@ def add_missing_subfolders(project: Path) -> int:
     이미 만든 폴더는 지우지 않고 OSError를 그대로 발생시킨다.
     """
     created_count = 0
-    for subfolder_name, child_names in SUBFOLDER_TREE.items():
-        subfolder = project / subfolder_name
-        for folder in (subfolder, *(subfolder / name for name in child_names)):
-            if not folder.is_dir():
-                folder.mkdir()
-                created_count += 1
+    for folder in _subfolder_paths(project):
+        if not folder.is_dir():
+            folder.mkdir()
+            created_count += 1
     return created_count

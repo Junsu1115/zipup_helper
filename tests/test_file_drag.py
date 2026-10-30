@@ -76,7 +76,7 @@ def test_mime_data_contains_file_url(app: QApplication) -> None:
     """드래그 데이터에 공백과 한글이 있는 파일 경로가 정확히 담기는지 확인한다."""
     path = Path("/작업 폴더/사진 1.png")
 
-    mime_data = build_file_mime_data(path)
+    mime_data = build_file_mime_data([path])
 
     assert mime_data.urls() == [QUrl.fromLocalFile(str(path))]
     assert mime_data.urls()[0].isLocalFile()
@@ -91,7 +91,7 @@ def test_start_file_drag_allows_copy_only(app: QApplication, tmp_path: Path) -> 
     pixmap.fill(QColor("red"))
 
     with patch("ui.file_drag.QDrag") as drag_class:
-        start_file_drag(source, path, pixmap)
+        start_file_drag(source, [path], pixmap)
 
     drag = drag_class.return_value
     drag_class.assert_called_once_with(source)
@@ -107,7 +107,7 @@ def test_start_file_drag_uses_file_icon_without_pixmap(
 ) -> None:
     """미리보기가 없는 파일은 일반 파일 아이콘으로 끌리는지 확인한다."""
     with patch("ui.file_drag.QDrag") as drag_class:
-        start_file_drag(QWidget(), tmp_path / "도형.emf", None)
+        start_file_drag(QWidget(), [tmp_path / "도형.emf"], None)
 
     assert not drag_class.return_value.setPixmap.call_args.args[0].isNull()
 
@@ -151,7 +151,7 @@ def test_dragging_image_icon_starts_file_drag(
         _drag_on(viewport, _icon_center(browser, "a.png"))
 
     start_drag.assert_called_once()
-    assert start_drag.call_args.args[1] == tmp_path / "project" / "a.png"
+    assert start_drag.call_args.args[1] == [tmp_path / "project" / "a.png"]
     assert not start_drag.call_args.args[2].isNull()
 
 
@@ -165,7 +165,7 @@ def test_dragging_small_icon_starts_file_drag(
     with patch("ui.folder_browser.start_file_drag") as start_drag:
         _drag_on(viewport, _icon_center(browser, "a.png"), distance=30)
 
-    assert start_drag.call_args.args[1] == tmp_path / "project" / "a.png"
+    assert start_drag.call_args.args[1] == [tmp_path / "project" / "a.png"]
 
 
 def test_dragging_detail_row_starts_file_drag(
@@ -179,7 +179,7 @@ def test_dragging_detail_row_starts_file_drag(
     with patch("ui.folder_browser.start_file_drag") as start_drag:
         _drag_on(tree.viewport(), _row_center(browser, "a.png"), distance=12)
 
-    assert start_drag.call_args.args[1] == tmp_path / "project" / "a.png"
+    assert start_drag.call_args.args[1] == [tmp_path / "project" / "a.png"]
     assert [
         tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())
     ] == order
@@ -210,6 +210,70 @@ def test_short_click_selects_without_drag(browser: FolderBrowser) -> None:
     assert [item.text() for item in folder_list.selectedItems()] == ["a.png"]
 
 
+def test_mime_data_contains_all_files(app: QApplication) -> None:
+    """여러 파일이 드래그 데이터에 모두 담기는지 확인한다."""
+    paths = [Path("/폴더/a.png"), Path("/폴더/b.png")]
+
+    urls = build_file_mime_data(paths).urls()
+
+    assert [url.toLocalFile() for url in urls] == ["/폴더/a.png", "/폴더/b.png"]
+
+
+def test_dragging_selected_images_carries_all(
+    browser: FolderBrowser, tmp_path: Path
+) -> None:
+    """여러 장을 선택해 끌면 선택한 파일 모두 전달되는지 확인한다."""
+    project = tmp_path / "project"
+    _save_image(project / "b.png")
+    browser.set_project(project)
+    folder_list = browser.findChild(QListWidget)
+    QTest.mouseClick(
+        folder_list.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=_icon_center(browser, "a.png"),
+    )
+    QTest.mouseClick(
+        folder_list.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier,
+        _icon_center(browser, "b.png"),
+    )
+
+    with patch("ui.folder_browser.start_file_drag") as start_drag:
+        _drag_on(folder_list.viewport(), _icon_center(browser, "a.png"))
+
+    start_drag.assert_called_once()
+    assert sorted(path.name for path in start_drag.call_args.args[1]) == [
+        "a.png",
+        "b.png",
+    ]
+
+
+def test_rubber_band_from_empty_space_selects_without_drag(
+    browser: FolderBrowser, tmp_path: Path
+) -> None:
+    """빈 공간에서 시작해 끌면 드래그 없이 범위 안의 사진이 선택되는지 확인한다."""
+    project = tmp_path / "project"
+    _save_image(project / "b.png")
+    browser.set_project(project)
+    folder_list = browser.findChild(QListWidget)
+    viewport = folder_list.viewport()
+    first = _icon_center(browser, "a.png")
+    second = _icon_center(browser, "b.png")
+    start = QPoint(second.x() + 200, second.y() + 200)
+
+    with patch("ui.folder_browser.start_file_drag") as start_drag:
+        _send_mouse(viewport, QEvent.Type.MouseButtonPress, start)
+        for point in (QPoint(start.x() - 50, start.y() - 50), second, first):
+            _send_mouse(viewport, QEvent.Type.MouseMove, point)
+        _send_mouse(
+            viewport, QEvent.Type.MouseButtonRelease, first, Qt.MouseButton.NoButton
+        )
+
+    start_drag.assert_not_called()
+    assert sorted(path.name for path in browser._selected_images) == ["a.png", "b.png"]
+
+
 @pytest.fixture
 def panel(app: QApplication) -> Iterator[PhotoPanel]:
     """화면에 표시된 사진 칸을 제공한다."""
@@ -233,7 +297,7 @@ def test_dragging_preview_starts_file_drag(
         _drag_on(label, label.rect().center())
 
     start_drag.assert_called_once()
-    assert start_drag.call_args.args[1] == path
+    assert start_drag.call_args.args[1] == [path]
 
 
 def test_short_press_on_preview_does_not_drag(
@@ -273,7 +337,7 @@ def test_main_window_ignores_drag_from_inside(
     root.mkdir()
     with patch("ui.main_window.ProjectSelector", lambda: ProjectSelector(root)):
         window = MainWindow()
-    mime_data = build_file_mime_data(tmp_path / "a.png")
+    mime_data = build_file_mime_data([tmp_path / "a.png"])
 
     inside_event = MagicMock()
     inside_event.source.return_value = window

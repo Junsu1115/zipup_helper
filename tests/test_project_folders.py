@@ -9,6 +9,7 @@ from core.project_folders import (
     FolderNameError,
     add_missing_subfolders,
     create_project_folder,
+    has_missing_subfolders,
     list_project_folders,
 )
 
@@ -133,6 +134,26 @@ def test_create_keeps_partial_folders_when_subfolder_fails(
     created = {entry.name for entry in (tmp_path / "프로젝트").iterdir()}
     assert created == {"Document", "Reference", "Work"}
     assert list((tmp_path / "프로젝트" / "Work").iterdir()) == []
+
+
+def test_has_missing_reflects_structure(tmp_path: Path) -> None:
+    """폴더가 빠졌는지를 안쪽 폴더까지 정확히 알려 주는지 확인한다."""
+    assert has_missing_subfolders(tmp_path)
+
+    add_missing_subfolders(tmp_path)
+    assert not has_missing_subfolders(tmp_path)
+
+    (tmp_path / "Work" / "Video").rmdir()
+    assert has_missing_subfolders(tmp_path)
+
+
+def test_has_missing_treats_same_name_file_as_missing(tmp_path: Path) -> None:
+    """같은 이름의 파일은 폴더가 없는 것으로 보는지 확인한다."""
+    add_missing_subfolders(tmp_path)
+    (tmp_path / "Reference").rmdir()
+    (tmp_path / "Reference").write_text("파일")
+
+    assert has_missing_subfolders(tmp_path)
 
 
 def test_add_missing_creates_whole_structure(tmp_path: Path) -> None:

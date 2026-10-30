@@ -9,14 +9,14 @@ from PySide6.QtWidgets import QFileIconProvider, QWidget
 DRAG_PIXMAP_SIZE = QSize(96, 96)
 
 
-def build_file_mime_data(path: Path) -> QMimeData:
-    """파일 경로를 담은 드래그 데이터를 만든다."""
+def build_file_mime_data(paths: list[Path]) -> QMimeData:
+    """파일 경로들을 담은 드래그 데이터를 만든다."""
     mime_data = QMimeData()
-    mime_data.setUrls([QUrl.fromLocalFile(str(path))])
+    mime_data.setUrls([QUrl.fromLocalFile(str(path)) for path in paths])
     return mime_data
 
 
-def _drag_pixmap(path: Path, pixmap: QPixmap | None) -> QPixmap:
+def _drag_pixmap(pixmap: QPixmap | None) -> QPixmap:
     """끄는 동안 표시할 이미지를 만든다. 사진이 없으면 일반 파일 아이콘을 쓴다."""
     if pixmap is None or pixmap.isNull():
         icon = QFileIconProvider().icon(QFileIconProvider.IconType.File)
@@ -29,12 +29,12 @@ def _drag_pixmap(path: Path, pixmap: QPixmap | None) -> QPixmap:
 
 
 def start_file_drag(
-    source: QWidget, path: Path, pixmap: QPixmap | None = None
+    source: QWidget, paths: list[Path], pixmap: QPixmap | None = None
 ) -> Qt.DropAction:
     """파일 드래그를 시작하고 끝날 때까지 기다린다. 원본이 사라지지 않게 복사로만 전달한다."""
-    drag_pixmap = _drag_pixmap(path, pixmap)
+    drag_pixmap = _drag_pixmap(pixmap)
     drag = QDrag(source)
-    drag.setMimeData(build_file_mime_data(path))
+    drag.setMimeData(build_file_mime_data(paths))
     drag.setPixmap(drag_pixmap)
     drag.setHotSpot(QPoint(drag_pixmap.width() // 2, drag_pixmap.height() // 2))
     return drag.exec(Qt.DropAction.CopyAction)

@@ -1,4 +1,4 @@
-"""폴더 안의 사진 파일 목록과 항목 정보 조회."""
+"""폴더 안의 사진과 동영상 파일 목록, 항목 정보 조회."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +25,8 @@ IMAGE_SUFFIXES = frozenset(
         ".heic",
     }
 )
+VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"})
+MEDIA_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -41,12 +43,18 @@ def name_sort_key(name: str) -> tuple[tuple[str | int, ...], str]:
     return _sort_key(name)
 
 
+def _file_kind(path: Path) -> str:
+    """파일의 종류 문구를 반환한다."""
+    label = "동영상" if path.suffix.lower() in VIDEO_SUFFIXES else "이미지"
+    return f"{path.suffix[1:].upper()} {label}"
+
+
 def read_entry_details(path: Path, is_folder: bool) -> EntryDetails:
     """항목의 수정일, 크기, 종류를 읽는다. 폴더의 크기는 계산하지 않는다.
 
     읽는 사이 항목이 지워졌으면 오류 대신 수정일과 크기를 None으로 둔다.
     """
-    kind = FOLDER_KIND if is_folder else f"{path.suffix[1:].upper()} 이미지"
+    kind = FOLDER_KIND if is_folder else _file_kind(path)
     try:
         stat = path.stat()
     except OSError:
@@ -82,13 +90,13 @@ def format_modified(modified: datetime | None) -> str:
     )
 
 
-def list_image_files(folder: Path) -> list[str]:
-    """folder 바로 아래의 사진 파일 이름을 정렬해 반환한다. 숨김 파일은 제외한다."""
+def list_media_files(folder: Path) -> list[str]:
+    """folder 바로 아래의 사진과 동영상 파일 이름을 정렬해 반환한다. 숨김 파일은 제외한다."""
     names = [
         entry.name
         for entry in folder.iterdir()
         if entry.is_file()
         and not entry.name.startswith(".")
-        and entry.suffix.lower() in IMAGE_SUFFIXES
+        and entry.suffix.lower() in MEDIA_SUFFIXES
     ]
     return sorted(names, key=_sort_key)

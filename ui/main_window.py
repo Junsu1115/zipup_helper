@@ -59,7 +59,7 @@ class MainWindow(QMainWindow):
         self._selector.project_changed.connect(browser.set_project)
 
         photo_panel = PhotoPanel()
-        browser.image_selected.connect(photo_panel.set_image)
+        browser.images_selected.connect(photo_panel.set_images)
         browser.image_activated.connect(photo_panel.open_with_default_app)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)

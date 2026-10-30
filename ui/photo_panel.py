@@ -58,7 +58,7 @@ class _DraggablePreviewLabel(QLabel):
             distance = event.position().toPoint() - self._press_position
             if distance.manhattanLength() >= QApplication.startDragDistance():
                 self._press_position = None
-                start_file_drag(self, self.file_path, self.drag_pixmap)
+                start_file_drag(self, [self.file_path], self.drag_pixmap)
                 return
         super().mouseMoveEvent(event)
 
@@ -102,6 +102,14 @@ class PhotoPanel(QWidget):
         self._app_buttons.idClicked.connect(self._on_app_button_clicked)
 
         self.set_image(None)
+
+    def set_images(self, paths: list[Path]) -> None:
+        """선택한 사진들을 표시한다. 여러 장이면 장수만 표시하고 버튼을 끈다."""
+        if len(paths) > 1:
+            self.set_image(None)
+            self._preview_label.setText(f"파일 {len(paths)}개 선택됨")
+        else:
+            self.set_image(paths[0] if paths else None)
 
     def set_image(self, path: Path | None) -> None:
         """표시할 사진을 바꾼다. None이면 선택 안내를 보여주고 버튼을 끈다."""

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QTreeWidget,
 )
 
+from core.project_folders import add_missing_subfolders
 from ui.folder_browser import (
     ICON_SIZE,
     SMALL_GRID_SIZE,
@@ -147,7 +148,7 @@ def test_empty_folder_shows_message(browser: FolderBrowser) -> None:
 
     assert browser.findChild(QListWidget).isHidden()
     assert browser._empty_label.isVisible()
-    assert browser._empty_label.text() == "폴더나 사진이 없습니다"
+    assert browser._empty_label.text() == "폴더나 파일이 없습니다"
 
 
 def test_set_project_shows_top_of_new_project(
@@ -328,12 +329,73 @@ def test_answering_yes_adds_folders_and_shows_toast(
     assert browser.findChild(_Toast).text() == "하위 폴더가 추가되었습니다"
 
 
-def test_nothing_to_add_shows_toast(browser: FolderBrowser) -> None:
-    """추가할 폴더가 없으면 그 내용을 알리는지 확인한다."""
+def test_button_is_disabled_after_adding_all_subfolders(
+    browser: FolderBrowser,
+) -> None:
+    """모두 추가하면 버튼이 꺼지고, 다시 눌러도 묻거나 알리지 않는지 확인한다."""
     _click_add_subfolders(browser, answer=True)
-    _click_add_subfolders(browser, answer=True)
+    assert not browser._add_subfolders_button.isEnabled()
 
-    assert browser.findChild(_Toast).text() == "이미 모든 하위 폴더가 있습니다"
+    with patch("ui.folder_browser.confirm") as confirm_mock:
+        browser._add_subfolders_button.click()
+
+    confirm_mock.assert_not_called()
+
+
+def test_button_is_disabled_when_project_already_has_all_subfolders(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """하위 폴더가 모두 있는 프로젝트를 열면 처음부터 꺼져 있는지 확인한다."""
+    add_missing_subfolders(project)
+
+    browser.set_project(project)
+
+    assert not browser._add_subfolders_button.isEnabled()
+
+
+def test_button_stays_enabled_when_some_subfolders_missing(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """일부만 있는 프로젝트에서는 버튼이 켜져 있는지 확인한다."""
+    add_missing_subfolders(project)
+    (project / "Pub" / "Video").rmdir()
+
+    browser.set_project(project)
+
+    assert browser._add_subfolders_button.isEnabled()
+
+
+def test_button_is_reenabled_when_subfolder_removed_outside(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """맨 위 폴더가 밖에서 지워지면 버튼이 다시 켜지는지 확인한다."""
+    _click_add_subfolders(browser, answer=True)
+    assert not browser._add_subfolders_button.isEnabled()
+
+    (project / "Reference").rmdir()
+
+    assert _wait_until(browser._add_subfolders_button.isEnabled)
+
+
+def test_button_is_reenabled_when_nested_subfolder_removed_outside(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """안쪽 폴더만 밖에서 지워도 버튼이 다시 켜지는지 확인한다."""
+    _click_add_subfolders(browser, answer=True)
+    assert not browser._add_subfolders_button.isEnabled()
+
+    (project / "Document" / "PPT_ORG").rmdir()
+
+    assert _wait_until(browser._add_subfolders_button.isEnabled)
+
+
+def test_button_stays_disabled_in_subfolder_when_subfolders_missing(
+    browser: FolderBrowser,
+) -> None:
+    """빠진 폴더가 있어도 하위 폴더 안에서는 꺼져 있는지 확인한다."""
+    _click_folder(browser, "Work")
+
+    assert not browser._add_subfolders_button.isEnabled()
 
 
 def test_add_failure_warns_and_refreshes(

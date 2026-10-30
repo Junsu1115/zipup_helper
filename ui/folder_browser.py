@@ -6,7 +6,7 @@ from functools import partial
 from pathlib import Path
 from time import monotonic
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QSignalBlocker, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QImage, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QTreeWidget,
@@ -29,14 +30,26 @@ from core.folder_contents import (
     EntryDetails,
     format_modified,
     format_size,
-    list_image_files,
+    list_media_files,
     name_sort_key,
     read_entry_details,
 )
-from core.project_folders import add_missing_subfolders, list_project_folders
+from core.photo_copy import (
+    PhotoCopySummary,
+    delete_from_pub,
+    is_inside_pub,
+    pub_destination,
+)
+from core.project_folders import (
+    SUBFOLDER_TREE,
+    add_missing_subfolders,
+    has_missing_subfolders,
+    list_project_folders,
+)
 from ui.file_drag import DRAG_PIXMAP_SIZE, start_file_drag
 from ui.folder_watcher import DebouncedFolderWatcher
 from ui.message_boxes import confirm, warn
+from ui.photo_copy_worker import PhotoCopyWorker
 from ui.thumbnail_loader import ThumbnailLoader
 from ui.toast import show_toast
 
@@ -49,8 +62,25 @@ DETAIL_HEADERS = ("이름", "수정일", "크기", "종류")
 NAME_COLUMN = 0
 PATH_SEPARATOR = " / "
 ADD_SUBFOLDERS_TITLE = "하위 폴더 추가"
+PUB_MENU_TEXT = "Pub 폴더로 이동"
+DELETE_MENU_TEXT = "삭제(Pub 폴더에서만 삭제됩니다)"
+PHOTO_COPY_TITLE = "파일 복사"
+PHOTO_DELETE_TITLE = "파일 삭제"
 # 항목이 폴더인지 표시하는 데이터 위치. 사진은 눌러도 들어가지 않는다.
 IS_FOLDER_ROLE = Qt.ItemDataRole.UserRole
+
+
+def _photo_copy_message(summary: PhotoCopySummary) -> str:
+    """복사 결과를 하단 알림 문구로 만든다. 알릴 내용이 없으면 빈 문자열을 반환한다."""
+    copied = summary.copied_count
+    existing = summary.existing_count
+    if copied and existing:
+        return f"파일 {copied}개를 복사했습니다. {existing}개는 이미 있습니다"
+    if copied:
+        return f"파일 {copied}개를 Pub 폴더로 복사했습니다"
+    if existing:
+        return "이미 Pub 폴더에 있습니다"
+    return ""
 
 
 class ViewMode(IntEnum):
@@ -127,11 +157,12 @@ class _ImageDragList(QListWidget):
         self._image_path = image_path
 
     def startDrag(self, _supported_actions: Qt.DropAction) -> None:
-        """선택한 사진의 파일 드래그를 시작한다."""
+        """선택한 사진들의 파일 드래그를 시작한다."""
         items = self.selectedItems()
         if items:
             pixmap = items[0].icon().pixmap(DRAG_PIXMAP_SIZE)
-            start_file_drag(self, self._image_path(items[0].text()), pixmap)
+            paths = [self._image_path(item.text()) for item in items]
+            start_file_drag(self, paths, pixmap)
 
 
 class _ImageDragTree(QTreeWidget):
@@ -143,11 +174,12 @@ class _ImageDragTree(QTreeWidget):
         self._image_path = image_path
 
     def startDrag(self, _supported_actions: Qt.DropAction) -> None:
-        """선택한 사진의 파일 드래그를 시작한다."""
+        """선택한 사진들의 파일 드래그를 시작한다."""
         items = self.selectedItems()
         if items:
             pixmap = items[0].icon(0).pixmap(DRAG_PIXMAP_SIZE)
-            start_file_drag(self, self._image_path(items[0].text(0)), pixmap)
+            paths = [self._image_path(item.text(0)) for item in items]
+            start_file_drag(self, paths, pixmap)
 
 
 def _build_detail_tree(image_path: Callable[[str], Path]) -> QTreeWidget:
@@ -157,7 +189,8 @@ def _build_detail_tree(image_path: Callable[[str], Path]) -> QTreeWidget:
     tree.setDragDropMode(QTreeWidget.DragDropMode.DragOnly)
     tree.setHeaderLabels(DETAIL_HEADERS)
     tree.setRootIsDecorated(False)
-    tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+    tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+    tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
     tree.setIconSize(DETAIL_ICON_SIZE)
     tree.setUniformRowHeights(True)
     tree.setAlternatingRowColors(True)
@@ -175,8 +208,8 @@ def _build_detail_tree(image_path: Callable[[str], Path]) -> QTreeWidget:
 class FolderBrowser(QWidget):
     """뒤로 가기 버튼, 현재 경로, 보기 선택, 폴더와 사진 목록으로 이루어진 화면."""
 
-    # 선택한 사진이 바뀌면 그 경로(없으면 None)를 보낸다.
-    image_selected = Signal(object)
+    # 선택한 사진들이 바뀌면 경로 목록을 보낸다. 선택이 없으면 빈 목록이다.
+    images_selected = Signal(object)
     # 사진을 더블클릭하면 그 경로를 보낸다.
     image_activated = Signal(object)
 
@@ -185,7 +218,8 @@ class FolderBrowser(QWidget):
         super().__init__(parent)
         self._project: Path | None = None
         self._current: Path | None = None
-        self._selected_image: Path | None = None
+        self._selected_images: list[Path] = []
+        self._copy_worker: PhotoCopyWorker | None = None
         self._last_folder_click_time = 0.0
         self._shown_entries: tuple[Path, list[str], list[str]] | None = None
         self._image_items: dict[str, QListWidgetItem] = {}
@@ -196,6 +230,7 @@ class FolderBrowser(QWidget):
         self._folder_icon = icon_provider.icon(QFileIconProvider.IconType.Folder)
         self._file_icon = icon_provider.icon(QFileIconProvider.IconType.File)
         QApplication.instance().aboutToQuit.connect(self.stop_thumbnail_loading)
+        QApplication.instance().aboutToQuit.connect(self.wait_for_photo_copy)
 
         self._back_button = QPushButton("← 뒤로")
         self._back_button.clicked.connect(self._on_back_clicked)
@@ -210,7 +245,12 @@ class FolderBrowser(QWidget):
         # Static은 끌기를 끄므로, 그 뒤에 프로그램 밖으로 끌어내는 것만 다시 켠다.
         self._folder_list.setDragEnabled(True)
         self._folder_list.setDragDropMode(QListWidget.DragDropMode.DragOnly)
-        self._folder_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._folder_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self._folder_list.setSelectionRectVisible(True)
+        self._folder_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._folder_list.customContextMenuRequested.connect(
+            self._on_list_context_menu
+        )
         self._folder_list.setIconSize(ICON_SIZE)
         self._folder_list.setGridSize(GRID_SIZE)
         self._folder_list.setWordWrap(True)
@@ -226,8 +266,11 @@ class FolderBrowser(QWidget):
         self._detail_tree.itemSelectionChanged.connect(
             self._on_tree_selection_changed
         )
+        self._detail_tree.customContextMenuRequested.connect(
+            self._on_tree_context_menu
+        )
 
-        self._empty_label = QLabel("폴더나 사진이 없습니다")
+        self._empty_label = QLabel("폴더나 파일이 없습니다")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         header_layout = QHBoxLayout()
@@ -289,7 +332,7 @@ class FolderBrowser(QWidget):
         """폴더로 이동하고 성공 여부를 반환한다. 읽지 못하면 경고하고 화면을 유지한다."""
         try:
             folder_names = list_project_folders(folder)
-            image_names = list_image_files(folder)
+            image_names = list_media_files(folder)
         except OSError as error:
             # 프로그램 시작 시에도 메인 창 가운데에 뜨도록, 메인 창이 표시된 뒤로 미룬다.
             QTimer.singleShot(
@@ -346,38 +389,125 @@ class FolderBrowser(QWidget):
         return self._current / name
 
     def _restore_selection(self, image_names: list[str]) -> None:
-        """같은 폴더에 선택한 사진이 남아 있으면 다시 선택하고, 없으면 선택을 푼다."""
-        selected = self._selected_image
-        is_still_here = (
-            selected is not None
-            and selected.parent == self._current
-            and selected.name in image_names
-        )
-        self._set_selected_image(selected.name if is_still_here else None)
+        """같은 폴더에 남아 있는 사진만 다시 선택한다."""
+        names = [
+            path.name
+            for path in self._selected_images
+            if path.parent == self._current and path.name in image_names
+        ]
+        self._select_images(names)
 
-    def _set_selected_image(self, name: str | None) -> None:
-        """사진을 선택하고 두 화면의 표시를 맞춘다. 바뀌었을 때만 신호를 보낸다."""
+    def _select_images(
+        self, names: list[str], update_list: bool = True, update_tree: bool = True
+    ) -> None:
+        """사진들을 선택하고 화면 표시를 맞춘다. 바뀌었을 때만 신호를 보낸다."""
         with QSignalBlocker(self._folder_list), QSignalBlocker(self._detail_tree):
-            self._folder_list.clearSelection()
-            self._detail_tree.clearSelection()
-            if name is not None:
-                self._image_items[name].setSelected(True)
-                self._detail_items[name].setSelected(True)
+            if update_list:
+                self._folder_list.clearSelection()
+                for name in names:
+                    self._image_items[name].setSelected(True)
+            if update_tree:
+                self._detail_tree.clearSelection()
+                for name in names:
+                    self._detail_items[name].setSelected(True)
 
-        path = None if name is None else self._current / name
-        if path != self._selected_image:
-            self._selected_image = path
-            self.image_selected.emit(path)
+        paths = [
+            self._current / name for name in sorted(names, key=name_sort_key)
+        ]
+        if paths != self._selected_images:
+            self._selected_images = paths
+            self.images_selected.emit(paths)
 
     def _on_list_selection_changed(self) -> None:
-        """아이콘 목록에서 고른 사진을 선택한다."""
-        items = self._folder_list.selectedItems()
-        self._set_selected_image(items[0].text() if items else None)
+        """아이콘 목록의 선택을 반영한다. 끌어서 선택하는 중이므로 목록 자체는 건드리지 않는다."""
+        names = [item.text() for item in self._folder_list.selectedItems()]
+        self._select_images(names, update_list=False)
 
     def _on_tree_selection_changed(self) -> None:
-        """자세히 표에서 고른 사진을 선택한다."""
-        items = self._detail_tree.selectedItems()
-        self._set_selected_image(items[0].text(0) if items else None)
+        """자세히 표의 선택을 반영한다. 끌어서 선택하는 중이므로 표 자체는 건드리지 않는다."""
+        names = [item.text(0) for item in self._detail_tree.selectedItems()]
+        self._select_images(names, update_tree=False)
+
+    def _on_list_context_menu(self, position: QPoint) -> None:
+        """아이콘 목록에서 오른쪽 버튼을 누른 사진의 메뉴를 띄운다."""
+        item = self._folder_list.itemAt(position)
+        if item is not None and not item.data(IS_FOLDER_ROLE):
+            global_position = self._folder_list.viewport().mapToGlobal(position)
+            self._show_image_menu(item.text(), global_position)
+
+    def _on_tree_context_menu(self, position: QPoint) -> None:
+        """자세히 표에서 오른쪽 버튼을 누른 사진의 메뉴를 띄운다."""
+        item = self._detail_tree.itemAt(position)
+        if item is not None and not item.data(0, IS_FOLDER_ROLE):
+            global_position = self._detail_tree.viewport().mapToGlobal(position)
+            self._show_image_menu(item.text(0), global_position)
+
+    def _show_image_menu(self, name: str, global_position: QPoint) -> None:
+        """위치에 맞는 메뉴를 띄운다. 선택되지 않은 파일을 눌렀으면 그 파일만 선택한다.
+
+        Pub 안에서는 삭제, Work 안에서는 Pub으로 복사 메뉴를 띄우고, 그 밖에서는 띄우지 않는다.
+        """
+        if is_inside_pub(self._current, self._project):
+            menu_text, handler = DELETE_MENU_TEXT, self._delete_selected_from_pub
+        elif pub_destination(self._current, self._project) is not None:
+            menu_text, handler = PUB_MENU_TEXT, self._start_photo_copy
+        else:
+            return
+        if self._current / name not in self._selected_images:
+            self._select_images([name])
+
+        menu = QMenu(self)
+        action = menu.addAction(menu_text)
+        chosen_action = menu.exec(global_position)
+        menu.deleteLater()
+        if chosen_action == action:
+            handler()
+
+    def _delete_selected_from_pub(self) -> None:
+        """확인을 받은 뒤 선택한 파일을 휴지통으로 옮기고 결과를 알린다."""
+        selected = list(self._selected_images)
+        question = (
+            f"선택한 파일 {len(selected)}개를 삭제하시겠습니까?\n"
+            "(Pub 폴더에서만 삭제됩니다)"
+        )
+        if not confirm(self, PHOTO_DELETE_TITLE, question):
+            return
+
+        summary = delete_from_pub(selected, self._project)
+        self._refresh()
+        if summary.deleted_count:
+            show_toast(self, f"파일 {summary.deleted_count}개를 삭제했습니다")
+        if summary.failures:
+            warn(self, PHOTO_DELETE_TITLE, "\n".join(summary.failures))
+
+    def _start_photo_copy(self) -> None:
+        """선택한 사진을 별도 스레드에서 Pub 폴더로 복사한다."""
+        if self._copy_worker is not None:
+            show_toast(self, "복사 중입니다")
+            return
+        worker = PhotoCopyWorker(list(self._selected_images), self._project, self)
+        worker.copy_finished.connect(self._on_photo_copy_finished)
+        worker.finished.connect(self._on_copy_worker_stopped)
+        self._copy_worker = worker
+        worker.start()
+
+    def _on_copy_worker_stopped(self) -> None:
+        """끝난 복사 스레드를 정리한다."""
+        self._copy_worker.deleteLater()
+        self._copy_worker = None
+
+    def wait_for_photo_copy(self) -> None:
+        """진행 중인 사진 복사가 끝나기를 기다린다. 프로그램 종료 시 호출한다."""
+        if self._copy_worker is not None:
+            self._copy_worker.wait()
+
+    def _on_photo_copy_finished(self, summary: PhotoCopySummary) -> None:
+        """복사 결과를 하단 알림으로 보여주고, 실패한 파일은 경고창으로 알린다."""
+        message = _photo_copy_message(summary)
+        if message:
+            show_toast(self, message)
+        if summary.failures:
+            warn(self, PHOTO_COPY_TITLE, "\n".join(summary.failures))
 
     def _add_entry(self, name: str, is_folder: bool, icon: QIcon) -> QListWidgetItem:
         """항목 하나를 아이콘 목록과 자세히 표에 추가하고, 아이콘 항목을 반환한다."""
@@ -438,7 +568,10 @@ class FolderBrowser(QWidget):
         self._watcher.set_paths([])
 
     def _update_header(self) -> None:
-        """현재 경로와 버튼 상태를 갱신한다. 하위 폴더 추가는 프로젝트 맨 위에서만 켠다."""
+        """현재 경로와 버튼 상태를 갱신한다.
+
+        하위 폴더 추가는 프로젝트 맨 위에서, 빠진 하위 폴더가 있을 때만 켠다.
+        """
         if self._current is None or self._project is None:
             self._path_label.clear()
             self._back_button.setEnabled(False)
@@ -450,13 +583,22 @@ class FolderBrowser(QWidget):
         )
         is_project_top = self._current == self._project
         self._back_button.setEnabled(not is_project_top)
-        self._add_subfolders_button.setEnabled(is_project_top)
+        self._add_subfolders_button.setEnabled(
+            is_project_top and has_missing_subfolders(self._project)
+        )
 
     def _watch_targets(self) -> list[Path]:
-        """프로젝트부터 현재 폴더까지의 경로를 반환한다. 중간 폴더가 사라져도 알기 위해서다."""
+        """감시할 폴더를 반환한다.
+
+        프로젝트부터 현재 폴더까지는 중간 폴더가 사라져도 알기 위해 감시한다.
+        프로젝트 맨 위에서는 하위 폴더 추가 버튼을 갱신하기 위해 하위 폴더도 감시한다.
+        """
         targets = [self._current]
         while targets[-1] != self._project:
             targets.append(targets[-1].parent)
+        if self._current == self._project:
+            subfolders = (self._project / name for name in SUBFOLDER_TREE)
+            targets.extend(folder for folder in subfolders if folder.is_dir())
         return targets
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
@@ -519,8 +661,6 @@ class FolderBrowser(QWidget):
         self._refresh()
         if created_count:
             show_toast(self, "하위 폴더가 추가되었습니다")
-        else:
-            show_toast(self, "이미 모든 하위 폴더가 있습니다")
 
     def _refresh(self) -> None:
         """현재 폴더를 다시 읽는다. 폴더가 사라졌으면 남아 있는 가장 가까운 상위 폴더로 간다."""

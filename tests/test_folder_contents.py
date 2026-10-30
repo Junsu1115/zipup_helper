@@ -8,7 +8,7 @@ import pytest
 from core.folder_contents import (
     format_modified,
     format_size,
-    list_image_files,
+    list_media_files,
     read_entry_details,
 )
 
@@ -19,7 +19,7 @@ def test_lists_only_visible_images_sorted(tmp_path: Path) -> None:
         (tmp_path / name).touch()
     (tmp_path / "폴더.png").mkdir()
 
-    assert list_image_files(tmp_path) == ["가.JPG", "나.png", "다.emf"]
+    assert list_media_files(tmp_path) == ["가.JPG", "나.png", "다.emf"]
 
 
 def test_read_details_of_image(tmp_path: Path) -> None:
@@ -81,7 +81,30 @@ def test_format_modified(modified: datetime | None, expected: str) -> None:
     assert format_modified(modified) == expected
 
 
+def test_lists_video_files(tmp_path: Path) -> None:
+    """동영상 파일도 목록에 포함되는지 확인한다."""
+    for name in ("a.mp4", "b.MOV", "c.m4v", "d.avi", "e.mkv", "f.webm", "g.mp3"):
+        (tmp_path / name).touch()
+
+    assert list_media_files(tmp_path) == [
+        "a.mp4",
+        "b.MOV",
+        "c.m4v",
+        "d.avi",
+        "e.mkv",
+        "f.webm",
+    ]
+
+
+def test_read_details_of_video(tmp_path: Path) -> None:
+    """동영상의 종류 문구가 맞는지 확인한다."""
+    video = tmp_path / "영상.Mp4"
+    video.write_bytes(b"1")
+
+    assert read_entry_details(video, is_folder=False).kind == "MP4 동영상"
+
+
 def test_raises_when_folder_is_missing(tmp_path: Path) -> None:
     """폴더가 없으면 오류가 발생하는지 확인한다."""
     with pytest.raises(FileNotFoundError):
-        list_image_files(tmp_path / "missing")
+        list_media_files(tmp_path / "missing")
