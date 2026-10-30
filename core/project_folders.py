@@ -1,11 +1,18 @@
 """프로젝트 폴더의 목록 조회와 생성."""
 
 import unicodedata
+from collections.abc import Iterable
 from pathlib import Path
 
 PROJECT_ROOT = Path("/Users/zipup/Project")
 FORBIDDEN_CHARACTERS = "/\\:\0"
-SUBFOLDER_NAMES = ("Document", "Reference", "Image", "Video")
+# 선택할 수 있는 하위 폴더와, 그 폴더를 만들 때 함께 만드는 폴더들.
+SUBFOLDER_TREE: dict[str, tuple[str, ...]] = {
+    "Document": ("PPT_ORG", "PPT_Break"),
+    "Reference": (),
+    "Work": ("Image", "Video"),
+    "Pub":("Image", "Video")
+}
 
 
 class FolderNameError(ValueError):
@@ -40,11 +47,12 @@ def _validate_folder_name(name: str) -> None:
 def create_project_folder(
     name: str,
     root: Path = PROJECT_ROOT,
-    with_subfolders: bool = False,
+    subfolders: Iterable[str] = (),
 ) -> str:
     """root 안에 새 폴더를 만들고, 앞뒤 공백을 정리한 실제 폴더 이름을 반환한다.
 
-    with_subfolders가 True면 새 폴더 안에 SUBFOLDER_NAMES의 폴더들도 만든다.
+    subfolders는 SUBFOLDER_TREE의 폴더 이름들이며, 새 폴더 안에 그 폴더와
+    딸린 폴더들을 함께 만든다.
     만드는 도중 실패하면 이미 만든 폴더는 지우지 않고 OSError를 그대로 발생시킨다.
     """
     cleaned_name = name.strip()
@@ -56,7 +64,9 @@ def create_project_folder(
         raise FolderNameError(
             f"'{cleaned_name}' 프로젝트가 이미 있습니다."
         ) from error
-    if with_subfolders:
-        for subfolder_name in SUBFOLDER_NAMES:
-            (project_folder / subfolder_name).mkdir()
+    for subfolder_name in subfolders:
+        subfolder = project_folder / subfolder_name
+        subfolder.mkdir()
+        for child_name in SUBFOLDER_TREE[subfolder_name]:
+            (subfolder / child_name).mkdir()
     return cleaned_name

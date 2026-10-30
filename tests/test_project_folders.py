@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from core.project_folders import (
-    SUBFOLDER_NAMES,
+    SUBFOLDER_TREE,
     FolderNameError,
     create_project_folder,
     list_project_folders,
@@ -62,13 +62,26 @@ def test_create_without_subfolders_makes_only_project_folder(
     assert list((tmp_path / "프로젝트").iterdir()) == []
 
 
-def test_create_with_subfolders_makes_all_subfolders(tmp_path: Path) -> None:
-    """선택하면 Document, Reference, Image, Video를 함께 만드는지 확인한다."""
-    create_project_folder("프로젝트", tmp_path, with_subfolders=True)
+def test_create_with_all_subfolders(tmp_path: Path) -> None:
+    """전체를 선택하면 4개 폴더와 각 폴더 아래 폴더까지 만드는지 확인한다."""
+    create_project_folder("프로젝트", tmp_path, SUBFOLDER_TREE)
 
-    created = {entry.name for entry in (tmp_path / "프로젝트").iterdir()}
-    assert created == {"Document", "Reference", "Image", "Video"}
-    assert created == set(SUBFOLDER_NAMES)
+    project = tmp_path / "프로젝트"
+    created = {entry.name for entry in project.iterdir()}
+    assert created == {"Document", "Reference", "Work", "Pub"}
+    for name, child_names in SUBFOLDER_TREE.items():
+        children = {entry.name for entry in (project / name).iterdir()}
+        assert children == set(child_names)
+
+
+def test_create_makes_only_selected_subfolders(tmp_path: Path) -> None:
+    """선택한 폴더만 만들고, Document가 없으면 PPT 폴더도 만들지 않는지 확인한다."""
+    create_project_folder("프로젝트", tmp_path, ["Reference", "Work"])
+
+    project = tmp_path / "프로젝트"
+    assert {entry.name for entry in project.iterdir()} == {"Reference", "Work"}
+    assert list((project / "Reference").iterdir()) == []
+    assert {entry.name for entry in (project / "Work").iterdir()} == {"Image", "Video"}
 
 
 def test_create_with_subfolders_keeps_existing_project_untouched(
@@ -78,7 +91,7 @@ def test_create_with_subfolders_keeps_existing_project_untouched(
     (tmp_path / "기존").mkdir()
 
     with pytest.raises(FolderNameError, match="'기존' 프로젝트가 이미 있습니다."):
-        create_project_folder("기존", tmp_path, with_subfolders=True)
+        create_project_folder("기존", tmp_path, SUBFOLDER_TREE)
 
     assert list((tmp_path / "기존").iterdir()) == []
 
@@ -98,10 +111,11 @@ def test_create_keeps_partial_folders_when_subfolder_fails(
     monkeypatch.setattr(Path, "mkdir", failing_mkdir)
 
     with pytest.raises(PermissionError):
-        create_project_folder("프로젝트", tmp_path, with_subfolders=True)
+        create_project_folder("프로젝트", tmp_path, SUBFOLDER_TREE)
 
     created = {entry.name for entry in (tmp_path / "프로젝트").iterdir()}
-    assert created == {"Document", "Reference"}
+    assert created == {"Document", "Reference", "Work"}
+    assert list((tmp_path / "프로젝트" / "Work").iterdir()) == []
 
 
 def test_create_raises_when_root_is_missing(tmp_path: Path) -> None:

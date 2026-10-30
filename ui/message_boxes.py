@@ -3,6 +3,9 @@
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
+# macOS의 버튼 순서 대신 Windows식 배치를 써서 Yes를 왼쪽, No를 오른쪽에 둔다.
+YES_LEFT_BUTTON_STYLE = "QDialogButtonBox { button-layout: 0; }"
+
 
 def center_on_parent_window(dialog: QDialog) -> None:
     """창을 부모가 속한 최상위 창의 가운데로 옮긴다."""
@@ -34,6 +37,7 @@ def confirm(parent: QWidget, title: str, text: str) -> bool:
     """예/아니오를 묻고, 예를 눌렀는지 반환한다."""
     box = _CenteredMessageBox(parent, title, text)
     box.setIcon(QMessageBox.Icon.Question)
+    box.setStyleSheet(YES_LEFT_BUTTON_STYLE)
     box.setStandardButtons(
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
     )
