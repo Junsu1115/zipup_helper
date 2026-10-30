@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.project_folders import SUBFOLDER_TREE
+from ui.gc_guard import install_main_thread_gc
 from ui.message_boxes import confirm, warn
 from ui.new_folder_dialog import NewFolderDialog
 from ui.project_selector import ProjectSelector
@@ -41,7 +42,9 @@ DialogAction = Callable[[QDialog], None]
 def app() -> Iterator[QApplication]:
     """화면에 창을 띄우지 않는 QApplication을 제공한다."""
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    yield QApplication.instance() or QApplication([])
+    application = QApplication.instance() or QApplication([])
+    install_main_thread_gc(application)
+    yield application
 
 
 @pytest.fixture(autouse=True)

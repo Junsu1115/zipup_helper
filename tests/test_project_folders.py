@@ -7,6 +7,7 @@ import pytest
 from core.project_folders import (
     SUBFOLDER_TREE,
     FolderNameError,
+    add_missing_subfolders,
     create_project_folder,
     list_project_folders,
 )
@@ -19,6 +20,22 @@ def test_list_returns_sorted_visible_folders_only(tmp_path: Path) -> None:
     (tmp_path / "file.txt").touch()
 
     assert list_project_folders(tmp_path) == ["A", "b", "가", "나"]
+
+
+def test_list_sorts_numbers_by_value(tmp_path: Path) -> None:
+    """이름 속 숫자를 크기순으로 정렬하고, 값이 같아도 순서가 고정되는지 확인한다."""
+    for name in ("image10", "image2", "image1", "프로젝트10", "프로젝트2", "a01", "a1"):
+        (tmp_path / name).mkdir()
+
+    assert list_project_folders(tmp_path) == [
+        "a01",
+        "a1",
+        "image1",
+        "image2",
+        "image10",
+        "프로젝트2",
+        "프로젝트10",
+    ]
 
 
 def test_list_raises_when_root_is_missing(tmp_path: Path) -> None:
@@ -116,6 +133,52 @@ def test_create_keeps_partial_folders_when_subfolder_fails(
     created = {entry.name for entry in (tmp_path / "프로젝트").iterdir()}
     assert created == {"Document", "Reference", "Work"}
     assert list((tmp_path / "프로젝트" / "Work").iterdir()) == []
+
+
+def test_add_missing_creates_whole_structure(tmp_path: Path) -> None:
+    """빈 프로젝트에 하위 폴더 구조 전체를 만들고 만든 수를 반환하는지 확인한다."""
+    created_count = add_missing_subfolders(tmp_path)
+
+    expected = sum(1 + len(children) for children in SUBFOLDER_TREE.values())
+    assert created_count == expected
+    for name, child_names in SUBFOLDER_TREE.items():
+        children = {entry.name for entry in (tmp_path / name).iterdir()}
+        assert children == set(child_names)
+
+
+def test_add_missing_keeps_existing_contents(tmp_path: Path) -> None:
+    """이미 있는 폴더와 파일은 그대로 두고, 없는 폴더만 만드는지 확인한다."""
+    document = tmp_path / "Document"
+    (document / "PPT_ORG").mkdir(parents=True)
+    keep_file = document / "PPT_ORG" / "보관.pptx"
+    keep_file.write_text("내용")
+    (tmp_path / "내폴더").mkdir()
+
+    add_missing_subfolders(tmp_path)
+
+    assert keep_file.read_text() == "내용"
+    assert (tmp_path / "내폴더").is_dir()
+    assert (document / "PPT_Break").is_dir()
+    assert (tmp_path / "Work" / "Image").is_dir()
+
+
+def test_add_missing_twice_creates_nothing(tmp_path: Path) -> None:
+    """모두 있으면 아무것도 만들지 않고 0을 반환하는지 확인한다."""
+    add_missing_subfolders(tmp_path)
+
+    assert add_missing_subfolders(tmp_path) == 0
+
+
+def test_add_missing_raises_when_file_has_same_name(tmp_path: Path) -> None:
+    """같은 이름의 파일이 있으면 오류를 내고 파일을 건드리지 않는지 확인한다."""
+    blocking_file = tmp_path / "Work"
+    blocking_file.write_text("파일")
+
+    with pytest.raises(OSError):
+        add_missing_subfolders(tmp_path)
+
+    assert blocking_file.read_text() == "파일"
+    assert (tmp_path / "Document").is_dir()
 
 
 def test_create_raises_when_root_is_missing(tmp_path: Path) -> None:
