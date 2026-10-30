@@ -1,10 +1,12 @@
 """프로젝트 안의 폴더와 사진을 큰 아이콘, 작은 아이콘, 자세히 보기로 보여주는 화면."""
 
+from collections.abc import Callable
 from enum import IntEnum
 from functools import partial
 from pathlib import Path
+from time import monotonic
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QImage, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -32,6 +34,7 @@ from core.folder_contents import (
     read_entry_details,
 )
 from core.project_folders import add_missing_subfolders, list_project_folders
+from ui.file_drag import DRAG_PIXMAP_SIZE, start_file_drag
 from ui.folder_watcher import DebouncedFolderWatcher
 from ui.message_boxes import confirm, warn
 from ui.thumbnail_loader import ThumbnailLoader
@@ -103,6 +106,8 @@ class _DetailItem(QTreeWidgetItem):
         )
         self.setIcon(0, icon)
         self.setData(0, IS_FOLDER_ROLE, is_folder)
+        if is_folder:
+            self.setFlags(Qt.ItemFlag.ItemIsEnabled)
         modified = details.modified.timestamp() if details.modified else -1.0
         size = -1 if details.size is None else details.size
         self._sort_keys = (name_sort_key(name), modified, size, details.kind)
@@ -113,12 +118,46 @@ class _DetailItem(QTreeWidgetItem):
         return self._sort_keys[column] < other._sort_keys[column]
 
 
-def _build_detail_tree() -> QTreeWidget:
+class _ImageDragList(QListWidget):
+    """사진 항목을 프로그램 밖으로 끌어낼 수 있는 아이콘 목록."""
+
+    def __init__(self, image_path: Callable[[str], Path]) -> None:
+        """이름으로 사진 경로를 찾는 함수를 기억한다."""
+        super().__init__()
+        self._image_path = image_path
+
+    def startDrag(self, _supported_actions: Qt.DropAction) -> None:
+        """선택한 사진의 파일 드래그를 시작한다."""
+        items = self.selectedItems()
+        if items:
+            pixmap = items[0].icon().pixmap(DRAG_PIXMAP_SIZE)
+            start_file_drag(self, self._image_path(items[0].text()), pixmap)
+
+
+class _ImageDragTree(QTreeWidget):
+    """사진 줄을 프로그램 밖으로 끌어낼 수 있는 자세히 표."""
+
+    def __init__(self, image_path: Callable[[str], Path]) -> None:
+        """이름으로 사진 경로를 찾는 함수를 기억한다."""
+        super().__init__()
+        self._image_path = image_path
+
+    def startDrag(self, _supported_actions: Qt.DropAction) -> None:
+        """선택한 사진의 파일 드래그를 시작한다."""
+        items = self.selectedItems()
+        if items:
+            pixmap = items[0].icon(0).pixmap(DRAG_PIXMAP_SIZE)
+            start_file_drag(self, self._image_path(items[0].text(0)), pixmap)
+
+
+def _build_detail_tree(image_path: Callable[[str], Path]) -> QTreeWidget:
     """자세히 보기 표를 만든다. 제목을 누르기 전까지는 이름순으로 둔다."""
-    tree = QTreeWidget()
+    tree = _ImageDragTree(image_path)
+    tree.setDragEnabled(True)
+    tree.setDragDropMode(QTreeWidget.DragDropMode.DragOnly)
     tree.setHeaderLabels(DETAIL_HEADERS)
     tree.setRootIsDecorated(False)
-    tree.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
+    tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
     tree.setIconSize(DETAIL_ICON_SIZE)
     tree.setUniformRowHeights(True)
     tree.setAlternatingRowColors(True)
@@ -136,11 +175,18 @@ def _build_detail_tree() -> QTreeWidget:
 class FolderBrowser(QWidget):
     """뒤로 가기 버튼, 현재 경로, 보기 선택, 폴더와 사진 목록으로 이루어진 화면."""
 
+    # 선택한 사진이 바뀌면 그 경로(없으면 None)를 보낸다.
+    image_selected = Signal(object)
+    # 사진을 더블클릭하면 그 경로를 보낸다.
+    image_activated = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         """위젯을 배치한다. 프로젝트는 set_project()로 지정한다."""
         super().__init__(parent)
         self._project: Path | None = None
         self._current: Path | None = None
+        self._selected_image: Path | None = None
+        self._last_folder_click_time = 0.0
         self._shown_entries: tuple[Path, list[str], list[str]] | None = None
         self._image_items: dict[str, QListWidgetItem] = {}
         self._detail_items: dict[str, _DetailItem] = {}
@@ -157,18 +203,29 @@ class FolderBrowser(QWidget):
         self._add_subfolders_button = QPushButton("이 위치에 하위 폴더 추가")
         self._add_subfolders_button.clicked.connect(self._on_add_subfolders_clicked)
 
-        self._folder_list = QListWidget()
+        self._folder_list = _ImageDragList(self._image_path)
         self._folder_list.setViewMode(QListWidget.ViewMode.IconMode)
         self._folder_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._folder_list.setMovement(QListWidget.Movement.Static)
-        self._folder_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        # Static은 끌기를 끄므로, 그 뒤에 프로그램 밖으로 끌어내는 것만 다시 켠다.
+        self._folder_list.setDragEnabled(True)
+        self._folder_list.setDragDropMode(QListWidget.DragDropMode.DragOnly)
+        self._folder_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self._folder_list.setIconSize(ICON_SIZE)
         self._folder_list.setGridSize(GRID_SIZE)
         self._folder_list.setWordWrap(True)
         self._folder_list.itemClicked.connect(self._on_item_clicked)
+        self._folder_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._folder_list.itemSelectionChanged.connect(self._on_list_selection_changed)
 
-        self._detail_tree = _build_detail_tree()
+        self._detail_tree = _build_detail_tree(self._image_path)
         self._detail_tree.itemClicked.connect(self._on_detail_item_clicked)
+        self._detail_tree.itemDoubleClicked.connect(
+            self._on_detail_item_double_clicked
+        )
+        self._detail_tree.itemSelectionChanged.connect(
+            self._on_tree_selection_changed
+        )
 
         self._empty_label = QLabel("폴더나 사진이 없습니다")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -265,24 +322,70 @@ class FolderBrowser(QWidget):
     def _show_entries(self, folder_names: list[str], image_names: list[str]) -> None:
         """폴더와 사진을 섞어 이름순으로 아이콘 목록과 자세히 표에 함께 채운다."""
         self._stop_current_loaders()
-        self._folder_list.clear()
-        self._detail_tree.clear()
-        self._image_items = {}
-        self._detail_items = {}
-        # 채우는 동안 항목마다 다시 정렬하지 않도록 정렬을 잠시 끈다.
-        self._detail_tree.setSortingEnabled(False)
-        for name in sorted([*folder_names, *image_names], key=name_sort_key):
-            if name in image_names:
-                self._image_items[name] = self._add_entry(name, False, self._file_icon)
-            else:
-                self._add_entry(name, True, self._folder_icon)
-        self._detail_tree.setSortingEnabled(True)
+        # 다시 채우는 동안 생기는 선택 변화를 사용자의 선택으로 처리하지 않는다.
+        with QSignalBlocker(self._folder_list), QSignalBlocker(self._detail_tree):
+            self._folder_list.clear()
+            self._detail_tree.clear()
+            self._image_items = {}
+            self._detail_items = {}
+            # 채우는 동안 항목마다 다시 정렬하지 않도록 정렬을 잠시 끈다.
+            self._detail_tree.setSortingEnabled(False)
+            for name in sorted([*folder_names, *image_names], key=name_sort_key):
+                if name in image_names:
+                    self._image_items[name] = self._add_entry(
+                        name, False, self._file_icon
+                    )
+                else:
+                    self._add_entry(name, True, self._folder_icon)
+            self._detail_tree.setSortingEnabled(True)
+        self._restore_selection(image_names)
         self._update_content_visibility()
+
+    def _image_path(self, name: str) -> Path:
+        """현재 폴더에 있는 사진의 경로를 반환한다."""
+        return self._current / name
+
+    def _restore_selection(self, image_names: list[str]) -> None:
+        """같은 폴더에 선택한 사진이 남아 있으면 다시 선택하고, 없으면 선택을 푼다."""
+        selected = self._selected_image
+        is_still_here = (
+            selected is not None
+            and selected.parent == self._current
+            and selected.name in image_names
+        )
+        self._set_selected_image(selected.name if is_still_here else None)
+
+    def _set_selected_image(self, name: str | None) -> None:
+        """사진을 선택하고 두 화면의 표시를 맞춘다. 바뀌었을 때만 신호를 보낸다."""
+        with QSignalBlocker(self._folder_list), QSignalBlocker(self._detail_tree):
+            self._folder_list.clearSelection()
+            self._detail_tree.clearSelection()
+            if name is not None:
+                self._image_items[name].setSelected(True)
+                self._detail_items[name].setSelected(True)
+
+        path = None if name is None else self._current / name
+        if path != self._selected_image:
+            self._selected_image = path
+            self.image_selected.emit(path)
+
+    def _on_list_selection_changed(self) -> None:
+        """아이콘 목록에서 고른 사진을 선택한다."""
+        items = self._folder_list.selectedItems()
+        self._set_selected_image(items[0].text() if items else None)
+
+    def _on_tree_selection_changed(self) -> None:
+        """자세히 표에서 고른 사진을 선택한다."""
+        items = self._detail_tree.selectedItems()
+        self._set_selected_image(items[0].text(0) if items else None)
 
     def _add_entry(self, name: str, is_folder: bool, icon: QIcon) -> QListWidgetItem:
         """항목 하나를 아이콘 목록과 자세히 표에 추가하고, 아이콘 항목을 반환한다."""
         item = QListWidgetItem(icon, name)
         item.setData(IS_FOLDER_ROLE, is_folder)
+        # 폴더는 누르면 들어가므로 선택 표시를 하지 않는다.
+        if is_folder:
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
         self._folder_list.addItem(item)
 
         details = read_entry_details(self._current / name, is_folder)
@@ -357,14 +460,41 @@ class FolderBrowser(QWidget):
         return targets
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        """누른 항목이 폴더이면 들어간다. 사진은 눌러도 아무 일도 하지 않는다."""
+        """누른 항목이 폴더이면 들어간다. 사진은 선택만 된다."""
         if item.data(IS_FOLDER_ROLE):
-            self._navigate_to(self._current / item.text())
+            self._enter_clicked_folder(item.text())
 
     def _on_detail_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         """자세히 보기에서 누른 줄이 폴더이면 들어간다."""
         if item.data(0, IS_FOLDER_ROLE):
-            self._navigate_to(self._current / item.text(0))
+            self._enter_clicked_folder(item.text(0))
+
+    def _enter_clicked_folder(self, name: str) -> None:
+        """누른 폴더로 들어가고, 더블클릭 구분을 위해 시각을 기억한다."""
+        self._last_folder_click_time = monotonic()
+        self._navigate_to(self._current / name)
+
+    def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
+        """아이콘 목록에서 더블클릭한 항목을 처리한다."""
+        if not item.data(IS_FOLDER_ROLE):
+            self._activate_image(item.text())
+
+    def _on_detail_item_double_clicked(
+        self, item: QTreeWidgetItem, _column: int
+    ) -> None:
+        """자세히 표에서 더블클릭한 줄을 처리한다."""
+        if not item.data(0, IS_FOLDER_ROLE):
+            self._activate_image(item.text(0))
+
+    def _activate_image(self, name: str) -> None:
+        """사진을 더블클릭했다고 알린다.
+
+        폴더를 더블클릭하면 첫 클릭에 들어가므로, 두 번째 클릭이 새 폴더의 사진에
+        닿을 수 있다. 폴더에 들어간 직후의 더블클릭은 무시한다.
+        """
+        interval_seconds = QApplication.doubleClickInterval() / 1000
+        if monotonic() - self._last_folder_click_time >= interval_seconds:
+            self.image_activated.emit(self._current / name)
 
     def _on_back_clicked(self) -> None:
         """한 단계 위 폴더로 올라간다."""

@@ -3,18 +3,20 @@
 from functools import partial
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
 
 from core.pptx_import import DroppedFiles, PptxImportSummary, classify_dropped_files
 from ui.folder_browser import FolderBrowser
 from ui.message_boxes import confirm, warn
+from ui.photo_panel import PhotoPanel
 from ui.pptx_import_worker import PptxImportWorker
 from ui.project_selector import ProjectSelector
 from ui.toast import show_toast
 
 IMPORT_TITLE = "PPT 저장"
+PANEL_WIDTH = 260
 
 
 def _local_paths(event: QDragEnterEvent | QDropEvent) -> list[Path]:
@@ -43,7 +45,7 @@ class MainWindow(QMainWindow):
     """기능 화면이 추가될 메인 창. PPTX 파일을 끌어다 놓을 수 있다."""
 
     def __init__(self) -> None:
-        """창 제목과 크기를 설정하고, 프로젝트 선택 위젯 아래에 폴더 화면을 배치한다."""
+        """창 제목과 크기를 설정하고, 프로젝트 선택 아래에 폴더 화면과 사진 칸을 배치한다."""
         super().__init__()
         self.setWindowTitle("zipup_helper")
         self.resize(960, 640)
@@ -56,15 +58,27 @@ class MainWindow(QMainWindow):
         browser.set_project(self._selector.current_project())
         self._selector.project_changed.connect(browser.set_project)
 
+        photo_panel = PhotoPanel()
+        browser.image_selected.connect(photo_panel.set_image)
+        browser.image_activated.connect(photo_panel.open_with_default_app)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(browser)
+        splitter.addWidget(photo_panel)
+        splitter.setChildrenCollapsible(False)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([self.width() - PANEL_WIDTH, PANEL_WIDTH])
+
         central_widget = QWidget()
         layout = QVBoxLayout(central_widget)
         layout.addWidget(self._selector)
-        layout.addWidget(browser, stretch=1)
+        layout.addWidget(splitter, stretch=1)
         self.setCentralWidget(central_widget)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        """이 컴퓨터의 파일을 끌어왔을 때만 놓을 수 있게 한다."""
-        if _local_paths(event):
+        """밖에서 끌어온 이 컴퓨터의 파일만 놓을 수 있게 한다. 프로그램 안의 사진은 무시한다."""
+        if event.source() is None and _local_paths(event):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
