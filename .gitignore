@@ -1,0 +1,23 @@
+# 비밀 정보
+.env
+
+# 가상환경
+.venv/
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_tmp/
+
+# PyInstaller 빌드 결과물
+build/
+dist/
+*.spec
+
+# 생성된 결과물 (폴더 자체는 유지)
+outputs/*
+!outputs/.gitkeep
+
+# macOS
+.DS_Store
