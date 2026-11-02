@@ -259,7 +259,7 @@ def test_template_button_copies_whole_template_and_shows_toast(
     clipboard = _click_template_button(panel)
 
     clipboard.setText.assert_called_once_with(load_image_analysis_template())
-    assert panel.findChild(_Toast).text() == "클립보드에 복사되었습니다"
+    assert panel.findChild(_Toast).text() == "클립보드에 복사되었습니다."
 
 
 def test_template_button_is_disabled_without_image(panel: PhotoPanel) -> None:
