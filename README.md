@@ -9,59 +9,133 @@
 
 ## 시작하기
 
-### 1. 준비물
+처음 한 번만 설치하면 됩니다. 개발 지식이 없어도 아래 순서대로 따라 하면 되고, 30분 정도 걸립니다. 인터넷 연결이 필요합니다.
 
-- macOS 또는 Windows
-- Python 3.12
-  - macOS: `python3.12 --version`으로 확인합니다. 없으면 `brew install python@3.12`로 설치합니다.
-  - Windows: `py -3.12 --version`으로 확인합니다. 없으면 [python.org](https://www.python.org/downloads/)에서 설치합니다.
-- Git
-- 사진을 포토샵으로 열려면 Adobe Photoshop
+사용하는 컴퓨터에 맞는 안내만 보세요.
 
-### 2. 설치
+- [Mac에서 설치하기](#mac에서-설치하기)
+- [Windows에서 설치하기](#windows에서-설치하기)
 
-**macOS** (터미널)
+"터미널"과 "PowerShell"은 글자로 명령을 입력하는 창입니다. 이 설명서의 명령을 그대로 복사해서 붙여넣고 `Enter`를 누르면 됩니다. 비밀번호를 묻는 명령은 없습니다.
+
+### Mac에서 설치하기
+
+**1단계. Python 설치하기**
+
+Python은 이 프로그램을 실행하는 데 필요한 도구입니다.
+
+1. [Mac용 Python 3.12 설치 파일](https://www.python.org/ftp/python/3.12.10/python-3.12.10-macos11.pkg)을 내려받습니다.
+2. 내려받은 파일을 더블클릭합니다.
+3. **계속**과 **동의**를 눌러 끝까지 진행합니다. Mac 로그인 비밀번호를 물으면 입력합니다.
+
+**2단계. 프로그램 내려받기**
+
+1. [프로그램 페이지](https://github.com/Junsu1115/zipup_helper)를 엽니다. GitHub 계정이 없어도 됩니다.
+2. 초록색 **Code** 버튼을 누르고 **Download ZIP**을 누릅니다.
+3. 내려받은 ZIP 파일을 더블클릭해 압축을 풉니다.
+4. 압축을 푼 `zipup_helper-main` 폴더를 **문서** 폴더로 옮깁니다.
+
+**3단계. 프로그램 설치하기**
+
+1. `⌘ + Space`를 누르고 `터미널`을 입력한 뒤 `Enter`를 누릅니다.
+2. 아래 명령을 한 줄씩 붙여넣고 `Enter`를 누릅니다. 세 번째 줄은 몇 분 걸릴 수 있습니다.
 
 ```bash
-git clone https://github.com/Junsu1115/zipup_helper.git
-cd zipup_helper
+cd ~/Documents/zipup_helper-main
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-**Windows** (PowerShell)
+글자가 많이 지나가도 정상입니다. 입력할 수 있는 줄이 다시 나오고 `ERROR`가 보이지 않으면 설치가 끝난 것입니다.
+
+**4단계. Project 폴더 만들기**
+
+프로젝트 폴더들이 모일 곳입니다.
+
+1. Finder를 열고 `⌘ + Shift + H`를 눌러 내 홈 폴더로 이동합니다.
+2. 빈 곳에서 마우스 오른쪽 버튼을 누르고 **새로운 폴더**를 선택합니다.
+3. 이름을 `Project`로 정합니다. 첫 글자만 대문자로, 정확히 입력해 주세요.
+
+**5단계. 실행하기**
+
+터미널에 아래 명령을 붙여넣고 `Enter`를 누르면 프로그램이 뜹니다.
+
+```bash
+cd ~/Documents/zipup_helper-main
+.venv/bin/python main.py
+```
+
+다음부터 쓸 때는 터미널을 열고 이 두 줄만 실행하면 됩니다. **프로그램을 쓰는 동안 터미널 창을 닫으면 프로그램도 꺼집니다.**
+
+### Windows에서 설치하기
+
+**1단계. Python 설치하기**
+
+Python은 이 프로그램을 실행하는 데 필요한 도구입니다.
+
+1. [Windows용 Python 3.12 설치 파일](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe)을 내려받습니다.
+2. 내려받은 파일을 더블클릭합니다.
+3. 첫 화면 아래쪽의 **Add python.exe to PATH**를 체크합니다.
+4. **Install Now**를 누르고 끝날 때까지 기다린 뒤 **Close**를 누릅니다.
+
+**2단계. 프로그램 내려받기**
+
+1. [프로그램 페이지](https://github.com/Junsu1115/zipup_helper)를 엽니다. GitHub 계정이 없어도 됩니다.
+2. 초록색 **Code** 버튼을 누르고 **Download ZIP**을 누릅니다.
+3. 내려받은 ZIP 파일에 마우스 오른쪽 버튼을 누르고 **압축 풀기** 또는 **모두 압축 풀기**를 선택합니다.
+4. 압축을 푼 폴더 안의 `zipup_helper-main` 폴더를 **문서** 폴더로 옮깁니다. 폴더를 열었을 때 바로 `main.py`가 보여야 합니다.
+
+**3단계. 프로그램 설치하기**
+
+1. 시작 메뉴를 열고 `PowerShell`을 입력한 뒤 `Enter`를 누릅니다.
+2. 아래 명령을 한 줄씩 붙여넣고 `Enter`를 누릅니다. 세 번째 줄은 몇 분 걸릴 수 있습니다.
 
 ```powershell
-git clone https://github.com/Junsu1115/zipup_helper.git
-cd zipup_helper
+cd "$HOME\Documents\zipup_helper-main"
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-### 3. 프로젝트 폴더 만들기
+글자가 많이 지나가도 정상입니다. 입력할 수 있는 줄이 다시 나오고 빨간 글자의 오류가 없으면 설치가 끝난 것입니다.
 
-프로그램은 내 홈 폴더의 `Project` 폴더 안에 있는 폴더를 프로젝트로 보여줍니다. 이 폴더는 미리 만들어 두어야 합니다. 프로그램이 자동으로 만들지 않습니다.
+**4단계. Project 폴더 만들기**
 
-| 운영체제 | 위치 |
-|---|---|
-| macOS | `/Users/사용자이름/Project` |
-| Windows | `C:\Users\사용자이름\Project` |
+프로젝트 폴더들이 모일 곳입니다. PowerShell에 아래 명령을 붙여넣고 `Enter`를 누릅니다.
 
-다른 위치를 쓰려면 `core/project_folders.py`의 아래 줄을 고칩니다. 설정 화면은 아직 없습니다.
-
-```python
-PROJECT_ROOT = Path.home() / "Project"
+```powershell
+mkdir "$HOME\Project"
 ```
 
-### 4. 실행
+`C:\Users\내이름\Project` 폴더가 만들어집니다.
 
-```bash
-# macOS
-.venv/bin/python main.py
+**5단계. 실행하기**
 
-# Windows
+PowerShell에 아래 명령을 붙여넣고 `Enter`를 누르면 프로그램이 뜹니다.
+
+```powershell
+cd "$HOME\Documents\zipup_helper-main"
 .venv\Scripts\python main.py
 ```
+
+다음부터 쓸 때는 PowerShell을 열고 이 두 줄만 실행하면 됩니다. **프로그램을 쓰는 동안 PowerShell 창을 닫으면 프로그램도 꺼집니다.**
+
+### 설치할 때 문제가 생기면
+
+| 화면에 나오는 말 | 해결 방법 |
+|---|---|
+| `command not found: python3.12` (Mac) | Python 설치를 마친 뒤 터미널을 완전히 닫고 다시 열어 주세요. 그래도 나오면 1단계를 다시 진행해 주세요. |
+| `py`을(를) 인식할 수 없다는 오류 (Windows) | Python 설치를 마친 뒤 PowerShell을 닫고 다시 열어 주세요. 그래도 나오면 1단계를 다시 진행해 주세요. |
+| `No such file or directory`, `경로를 찾을 수 없습니다` | `zipup_helper-main` 폴더가 **문서** 폴더 바로 안에 있는지, 폴더 이름이 정확한지 확인해 주세요. |
+| 설치 중 `ERROR`, `Could not` | 인터넷 연결을 확인하고 3단계의 세 번째 줄을 다시 실행해 주세요. |
+| 프로그램에 "폴더 목록을 읽지 못했습니다" | 4단계의 `Project` 폴더를 만들고 프로그램을 다시 실행해 주세요. |
+
+해결되지 않으면 화면의 메시지를 캡처해서 관리자에게 보내 주세요.
+
+### 새 버전으로 바꾸기
+
+1. 프로그램을 끕니다.
+2. **문서** 폴더의 `zipup_helper-main` 폴더를 지웁니다. `Project` 폴더는 다른 곳에 있으므로 작업 파일은 지워지지 않습니다.
+3. 2단계와 3단계를 다시 진행합니다. 1단계와 4단계는 다시 하지 않아도 됩니다.
 
 ## 화면 구성
 
@@ -182,7 +256,7 @@ PROJECT_ROOT = Path.home() / "Project"
 ## 자주 묻는 질문
 
 **프로젝트 목록이 비어 있거나 오류가 나요.**
-프로젝트 폴더 위치가 실제로 있는지 확인해 주세요. [3단계](#3-프로젝트-폴더-만들기)를 참고하세요. 프로그램을 켠 뒤에 이 폴더를 만들었다면 프로그램을 다시 켜야 합니다.
+프로젝트 폴더 위치가 실제로 있는지 확인해 주세요. 설치 안내의 **4단계**를 참고하세요. 프로그램을 켠 뒤에 이 폴더를 만들었다면 프로그램을 다시 켜야 합니다.
 
 **Adobe Photoshop 버튼이 눌리지 않아요.**
 사진을 한 장만 선택했는지 확인해 주세요. 사진이 없거나 여러 장을 선택하면 버튼이 꺼집니다.
@@ -206,6 +280,14 @@ PROJECT_ROOT = Path.home() / "Project"
 - 실행 파일 형태의 배포판은 아직 없습니다.
 
 ## 개발자용
+
+Git으로 받기:
+
+```bash
+git clone git@github.com:Junsu1115/zipup_helper.git
+```
+
+프로젝트 폴더 위치를 바꾸려면 `core/project_folders.py`의 `PROJECT_ROOT`를 고칩니다. 설정 화면은 아직 없습니다.
 
 ```bash
 # 테스트 실행 (Windows는 .venv\Scripts\python)
