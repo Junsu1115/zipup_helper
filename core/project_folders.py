@@ -1,12 +1,20 @@
 """프로젝트 폴더의 목록 조회와 생성."""
 
 import re
+import stat
 import unicodedata
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-PROJECT_ROOT = Path("/Users/zipup/Project")
-FORBIDDEN_CHARACTERS = "/\\:\0"
+PROJECT_ROOT = Path.home() / "Project"
+# 어느 운영체제에서 만든 폴더든 양쪽에서 쓸 수 있도록 Windows 규칙까지 함께 검사한다.
+FORBIDDEN_CHARACTERS = '/\\:*?"<>|\0'
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
+HIDDEN_FILE_ATTRIBUTES = stat.FILE_ATTRIBUTE_HIDDEN | stat.FILE_ATTRIBUTE_SYSTEM
 # 선택할 수 있는 하위 폴더와, 그 폴더를 만들 때 함께 만드는 폴더들.
 SUBFOLDER_TREE: dict[str, tuple[str, ...]] = {
     "Document": ("PPT_ORG", "PPT_Break"),
@@ -37,12 +45,23 @@ def _sort_key(name: str) -> tuple[tuple[str | int, ...], str]:
     )
 
 
+def is_hidden(entry: Path) -> bool:
+    """숨김 항목인지 반환한다. '.'으로 시작하는 이름과 Windows의 숨김, 시스템 항목이 해당한다."""
+    if entry.name.startswith("."):
+        return True
+    try:
+        attributes = getattr(entry.stat(), "st_file_attributes", 0)
+    except OSError:
+        return False
+    return bool(attributes & HIDDEN_FILE_ATTRIBUTES)
+
+
 def list_project_folders(root: Path = PROJECT_ROOT) -> list[str]:
     """root 바로 아래의 폴더 이름을 정렬해 반환한다. 파일과 숨김 폴더는 제외한다."""
     names = [
         entry.name
         for entry in root.iterdir()
-        if entry.is_dir() and not entry.name.startswith(".")
+        if entry.is_dir() and not is_hidden(entry)
     ]
     return sorted(names, key=_sort_key)
 
@@ -54,7 +73,11 @@ def _validate_folder_name(name: str) -> None:
     if name.startswith("."):
         raise FolderNameError("폴더 이름은 '.'으로 시작할 수 없습니다.")
     if any(character in name for character in FORBIDDEN_CHARACTERS):
-        raise FolderNameError("폴더 이름에는 / \\ : 를 쓸 수 없습니다.")
+        raise FolderNameError('폴더 이름에는 / \\ : * ? " < > | 를 쓸 수 없습니다.')
+    if name.endswith("."):
+        raise FolderNameError("폴더 이름은 '.'으로 끝날 수 없습니다.")
+    if name.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
+        raise FolderNameError(f"'{name}'은 Windows에서 예약된 이름이라 쓸 수 없습니다.")
 
 
 def create_project_folder(

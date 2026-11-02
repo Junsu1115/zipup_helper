@@ -2,8 +2,14 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QProcess, QSize, Qt
-from PySide6.QtGui import QImage, QMouseEvent, QPixmap, QResizeEvent
+from PySide6.QtCore import QPoint, QProcess, QSize, Qt, QUrl
+from PySide6.QtGui import (
+    QDesktopServices,
+    QImage,
+    QMouseEvent,
+    QPixmap,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -14,11 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.external_apps import (
-    EXTERNAL_APPS,
-    build_default_open_command,
-    build_open_command,
-)
+from core.external_apps import EXTERNAL_APPS, AppNotFoundError, get_app_launcher
 from core.folder_contents import format_size, read_entry_details
 from ui.file_drag import start_file_drag
 from ui.message_boxes import warn
@@ -197,21 +199,38 @@ class PhotoPanel(QWidget):
         if self._image_path is None or self._open_process is not None:
             return
         app = EXTERNAL_APPS[app_index]
-        self._run_open_command(
-            build_open_command(app, self._image_path),
+        error_message = (
             f"{app.name}에서 열지 못했습니다.\n"
-            "프로그램이 설치되어 있는지 확인해 주세요.",
+            "프로그램이 설치되어 있는지 확인해 주세요."
         )
+        launcher = get_app_launcher()
+        try:
+            command = launcher.build_command(app, self._image_path)
+        except AppNotFoundError:
+            warn(self, OPEN_ERROR_TITLE, error_message)
+            return
+
+        if launcher.opens_detached:
+            self._start_detached(command, error_message)
+        else:
+            self._run_open_command(command, error_message)
 
     def open_with_default_app(self, path: Path) -> None:
-        """사진을 macOS 기본 프로그램으로 연다. 다른 열기가 진행 중이면 무시한다."""
-        if self._open_process is not None:
-            return
-        self._run_open_command(
-            build_default_open_command(path),
-            f"'{path.name}' 파일을 열지 못했습니다.\n"
-            "이 파일을 열 수 있는 프로그램이 있는지 확인해 주세요.",
-        )
+        """사진을 운영체제의 기본 프로그램으로 연다."""
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            warn(
+                self,
+                OPEN_ERROR_TITLE,
+                f"'{path.name}' 파일을 열지 못했습니다.\n"
+                "이 파일을 열 수 있는 프로그램이 있는지 확인해 주세요.",
+            )
+
+    def _start_detached(self, command: list[str], error_message: str) -> None:
+        """프로그램을 실행하고 종료를 기다리지 않는다. 시작하지 못하면 경고창을 띄운다."""
+        program, *arguments = command
+        started, _process_id = QProcess.startDetached(program, arguments)
+        if not started:
+            warn(self, OPEN_ERROR_TITLE, error_message)
 
     def _run_open_command(self, command: list[str], error_message: str) -> None:
         """화면을 막지 않도록 QProcess로 명령을 실행한다."""

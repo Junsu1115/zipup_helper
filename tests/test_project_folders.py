@@ -1,15 +1,20 @@
 """core.project_folders 테스트. 실제 프로젝트 폴더 대신 임시 폴더만 사용한다."""
 
+import stat
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from core.project_folders import (
+    PROJECT_ROOT,
     SUBFOLDER_TREE,
     FolderNameError,
     add_missing_subfolders,
     create_project_folder,
     has_missing_subfolders,
+    is_hidden,
     list_project_folders,
 )
 
@@ -21,6 +26,40 @@ def test_list_returns_sorted_visible_folders_only(tmp_path: Path) -> None:
     (tmp_path / "file.txt").touch()
 
     assert list_project_folders(tmp_path) == ["A", "b", "가", "나"]
+
+
+def test_default_root_is_project_folder_in_home() -> None:
+    """기본 폴더가 사용자 홈 폴더의 Project인지 확인한다."""
+    assert PROJECT_ROOT == Path.home() / "Project"
+
+
+def test_create_allows_similar_to_reserved_names(tmp_path: Path) -> None:
+    """예약된 이름과 비슷하기만 한 이름은 만들 수 있는지 확인한다."""
+    for name in ("CONTENT", "com10", "프로젝트.v1"):
+        assert create_project_folder(name, tmp_path) == name
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [stat.FILE_ATTRIBUTE_HIDDEN, stat.FILE_ATTRIBUTE_SYSTEM],
+)
+def test_is_hidden_detects_windows_attributes(
+    tmp_path: Path, attribute: int
+) -> None:
+    """Windows의 숨김, 시스템 속성이 있는 항목을 숨김으로 보는지 확인한다."""
+    fake_stat = SimpleNamespace(st_file_attributes=attribute)
+
+    with patch.object(Path, "stat", return_value=fake_stat):
+        assert is_hidden(tmp_path / "$RECYCLE.BIN")
+
+
+def test_is_hidden_handles_normal_and_missing_entries(tmp_path: Path) -> None:
+    """일반 항목과 사라진 항목은 숨김이 아니고, 점으로 시작하면 숨김인지 확인한다."""
+    (tmp_path / "보통").mkdir()
+
+    assert not is_hidden(tmp_path / "보통")
+    assert not is_hidden(tmp_path / "없음")
+    assert is_hidden(tmp_path / ".숨김")
 
 
 def test_list_sorts_numbers_by_value(tmp_path: Path) -> None:
@@ -53,7 +92,29 @@ def test_create_makes_folder_and_strips_spaces(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["", "   ", ".", "..", ".hidden", "a/b", "../escape", "a\\b", "a:b"],
+    [
+        "",
+        "   ",
+        ".",
+        "..",
+        ".hidden",
+        "a/b",
+        "../escape",
+        "a\\b",
+        "a:b",
+        "a*b",
+        "a?b",
+        'a"b',
+        "a<b",
+        "a>b",
+        "a|b",
+        "끝점.",
+        "CON",
+        "con",
+        "nul.txt",
+        "COM1",
+        "lpt9",
+    ],
 )
 def test_create_rejects_invalid_names(tmp_path: Path, name: str) -> None:
     """쓸 수 없는 이름을 거부하고 아무것도 만들지 않는지 확인한다."""

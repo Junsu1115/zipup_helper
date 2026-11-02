@@ -1,7 +1,10 @@
 """core.folder_contents 테스트. 임시 폴더만 사용한다."""
 
+import stat
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -79,6 +82,23 @@ def test_format_size(size: int | None, expected: str) -> None:
 def test_format_modified(modified: datetime | None, expected: str) -> None:
     """수정일이 오전과 오후로 나뉘어 표시되는지 확인한다."""
     assert format_modified(modified) == expected
+
+
+def test_excludes_windows_hidden_files(tmp_path: Path) -> None:
+    """Windows의 숨김 속성이 있는 사진은 목록에서 빠지는지 확인한다."""
+    (tmp_path / "사진.png").touch()
+    real_stat = Path.stat
+
+    def hidden_stat(path: Path, *args: object, **kwargs: object) -> object:
+        """일반 파일 정보에 숨김 속성을 더해 반환한다."""
+        result = real_stat(path, *args, **kwargs)
+        return SimpleNamespace(
+            st_mode=result.st_mode,
+            st_file_attributes=stat.FILE_ATTRIBUTE_HIDDEN,
+        )
+
+    with patch.object(Path, "stat", hidden_stat):
+        assert list_media_files(tmp_path) == []
 
 
 def test_lists_video_files(tmp_path: Path) -> None:

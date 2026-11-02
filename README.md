@@ -1,6 +1,6 @@
 # zipup_helper
 
-디자인 프로젝트 폴더를 정리하고, PPT 안의 사진을 꺼내 작업하는 과정을 줄여 주는 macOS 프로그램입니다.
+디자인 프로젝트 폴더를 정리하고, PPT 안의 사진을 꺼내 작업하는 과정을 줄여 주는 macOS, Windows용 프로그램입니다.
 
 - 프로젝트 폴더를 정해진 구조로 한 번에 만듭니다.
 - PPTX를 끌어다 놓으면 원본을 저장하고 안의 사진을 꺼냅니다.
@@ -11,14 +11,16 @@
 
 ### 1. 준비물
 
-- macOS
-- Python 3.12 (`python3.12 --version`으로 확인합니다. 없으면 `brew install python@3.12`로 설치합니다.)
+- macOS 또는 Windows
+- Python 3.12
+  - macOS: `python3.12 --version`으로 확인합니다. 없으면 `brew install python@3.12`로 설치합니다.
+  - Windows: `py -3.12 --version`으로 확인합니다. 없으면 [python.org](https://www.python.org/downloads/)에서 설치합니다.
 - Git
 - 사진을 포토샵으로 열려면 Adobe Photoshop
 
 ### 2. 설치
 
-터미널에서 아래 명령을 차례로 실행합니다.
+**macOS** (터미널)
 
 ```bash
 git clone https://github.com/Junsu1115/zipup_helper.git
@@ -27,22 +29,38 @@ python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-### 3. 프로젝트 폴더 위치 정하기
+**Windows** (PowerShell)
 
-프로그램은 `/Users/zipup/Project` 안의 폴더를 프로젝트로 보여줍니다.
-
-Mac 사용자 이름이 `zipup`이 아니거나 다른 위치를 쓰려면, `core/project_folders.py`의 아래 줄을 원하는 경로로 고칩니다. 설정 화면은 아직 없습니다.
-
-```python
-PROJECT_ROOT = Path("/Users/zipup/Project")
+```powershell
+git clone https://github.com/Junsu1115/zipup_helper.git
+cd zipup_helper
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-이 폴더는 미리 만들어 두어야 합니다. 프로그램이 자동으로 만들지 않습니다.
+### 3. 프로젝트 폴더 만들기
+
+프로그램은 내 홈 폴더의 `Project` 폴더 안에 있는 폴더를 프로젝트로 보여줍니다. 이 폴더는 미리 만들어 두어야 합니다. 프로그램이 자동으로 만들지 않습니다.
+
+| 운영체제 | 위치 |
+|---|---|
+| macOS | `/Users/사용자이름/Project` |
+| Windows | `C:\Users\사용자이름\Project` |
+
+다른 위치를 쓰려면 `core/project_folders.py`의 아래 줄을 고칩니다. 설정 화면은 아직 없습니다.
+
+```python
+PROJECT_ROOT = Path.home() / "Project"
+```
 
 ### 4. 실행
 
 ```bash
+# macOS
 .venv/bin/python main.py
+
+# Windows
+.venv\Scripts\python main.py
 ```
 
 ## 화면 구성
@@ -87,7 +105,7 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 ### PPT에서 사진 꺼내기
 
 1. 맨 위에서 저장할 프로젝트를 고릅니다.
-2. Finder에서 `.pptx` 파일을 프로그램 창으로 끌어다 놓습니다.
+2. Finder 또는 파일 탐색기에서 `.pptx` 파일을 프로그램 창으로 끌어다 놓습니다.
 3. 프로젝트 이름이 맞는지 확인하고 **Yes**를 누릅니다.
 
 파일은 다음과 같이 저장됩니다. 끌어다 놓은 원본 파일은 그대로 남습니다.
@@ -110,7 +128,7 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 - 폴더를 **한 번** 누르면 들어갑니다. **← 뒤로**로 돌아옵니다.
 - **큰 아이콘**, **작은 아이콘**, **자세히** 중에서 보기를 고릅니다.
 - **자세히** 보기에서 제목을 누르면 그 항목 기준으로 정렬합니다. 다른 폴더를 열면 다시 이름순으로 돌아갑니다.
-- Finder에서 폴더나 사진을 바꾸면 프로그램에도 자동으로 반영됩니다.
+- Finder나 파일 탐색기에서 폴더나 사진을 바꾸면 프로그램에도 자동으로 반영됩니다.
 
 표시하는 파일 형식은 다음과 같습니다. 동영상과 미리보기를 만들 수 없는 파일은 일반 파일 아이콘으로 나옵니다.
 
@@ -123,7 +141,7 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 |---|---|
 | 한 장 선택 | 사진을 한 번 클릭 |
 | 연속으로 여러 장 선택 | 첫 사진을 클릭하고 `Shift`를 누른 채 마지막 사진을 클릭 |
-| 한 장씩 추가하거나 빼기 | `⌘`를 누른 채 클릭 |
+| 한 장씩 추가하거나 빼기 | `⌘`(Windows는 `Ctrl`)를 누른 채 클릭 |
 | 범위로 선택 | 사진이 없는 빈 공간에서 시작해 끌기 |
 
 ### 사진 사용하기
@@ -133,7 +151,7 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 | 크게 보기 | 사진을 클릭하면 오른쪽 칸에 나옵니다 |
 | 기본 프로그램으로 열기 | 사진을 더블클릭 |
 | 포토샵으로 열기 | 사진 한 장을 선택하고 **Adobe Photoshop** 클릭 |
-| Finder로 복사 | 사진을 잡아 Finder나 바탕화면에 놓기 |
+| 다른 폴더로 복사 | 사진을 잡아 Finder, 파일 탐색기, 바탕화면에 놓기 |
 | 웹 사이트에 올리기 | 사진을 잡아 웹 페이지의 업로드 칸에 놓기 |
 
 알아둘 점:
@@ -158,19 +176,19 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 - **Pub 폴더로 이동**은 메뉴 이름과 달리 **복사**입니다. `Work`의 원본은 그대로 남습니다.
 - `Work/Image/시안`처럼 더 깊은 폴더는 `Pub/Image/시안`을 만들어 복사합니다.
 - 복사할 곳에 같은 이름의 파일이 있으면 내용이 달라도 덮어쓰지 않고 "이미 Pub 폴더에 있습니다"라고 알려 줍니다.
-- 삭제한 파일은 Finder 휴지통에서 되살릴 수 있고, `Work`의 원본에는 영향이 없습니다.
+- 삭제한 파일은 휴지통에서 되살릴 수 있고, `Work`의 원본에는 영향이 없습니다.
 - `Document/PPT_Break/media`의 사진을 `Pub`으로 보내려면 먼저 `Work`로 옮겨 주세요.
 
 ## 자주 묻는 질문
 
 **프로젝트 목록이 비어 있거나 오류가 나요.**
-프로젝트 폴더 위치가 실제로 있는지 확인해 주세요. [3단계](#3-프로젝트-폴더-위치-정하기)를 참고하세요. 프로그램을 켠 뒤에 이 폴더를 만들었다면 프로그램을 다시 켜야 합니다.
+프로젝트 폴더 위치가 실제로 있는지 확인해 주세요. [3단계](#3-프로젝트-폴더-만들기)를 참고하세요. 프로그램을 켠 뒤에 이 폴더를 만들었다면 프로그램을 다시 켜야 합니다.
 
 **Adobe Photoshop 버튼이 눌리지 않아요.**
 사진을 한 장만 선택했는지 확인해 주세요. 사진이 없거나 여러 장을 선택하면 버튼이 꺼집니다.
 
 **"Adobe Photoshop에서 열지 못했습니다"라고 나와요.**
-포토샵이 이 Mac에 설치되어 있는지 확인해 주세요.
+포토샵이 이 컴퓨터에 설치되어 있는지 확인해 주세요.
 
 **이 위치에 하위 폴더 추가 버튼이 눌리지 않아요.**
 프로젝트 맨 위에서만 누를 수 있고, 하위 폴더가 모두 있으면 꺼집니다.
@@ -180,20 +198,22 @@ PROJECT_ROOT = Path("/Users/zipup/Project")
 
 ## 현재 제한 사항
 
-- macOS에서만 사용할 수 있습니다.
+- Windows 지원은 자동 테스트 중심으로 확인 중입니다. 실제 사용 중 문제가 있으면 알려 주세요.
+- Windows에서 프로그램이 보고 있는 폴더는 지우거나 이름을 바꿀 때 "사용 중" 오류가 날 수 있습니다. 이때는 프로그램에서 다른 폴더로 이동한 뒤 다시 시도해 주세요.
 - 프로젝트 폴더 위치는 설정 화면이 없어 코드에서 바꿔야 합니다.
-- 프로그램 안에서 파일이나 폴더를 지울 수 없습니다. 삭제는 Finder에서 해 주세요.
+- 프로그램 안에서는 `Pub` 폴더의 파일만 지울 수 있습니다. 다른 삭제는 Finder나 파일 탐색기에서 해 주세요.
 - 프로그램을 다시 켜면 보기 방식은 큰 아이콘으로 돌아갑니다.
 - 실행 파일 형태의 배포판은 아직 없습니다.
 
 ## 개발자용
 
 ```bash
-# 테스트 실행
+# 테스트 실행 (Windows는 .venv\Scripts\python)
 .venv/bin/python -m pytest --basetemp=.pytest_tmp
 ```
 
 - `core/`: 폴더, 파일을 다루는 핵심 로직
 - `ui/`: PySide6 화면 코드
 - `tests/`: 테스트. 임시 폴더와 가짜 명령만 사용하며, 실제 프로젝트 폴더나 포토샵은 건드리지 않습니다.
+- `.github/workflows/tests.yml`: 푸시할 때 macOS와 Windows에서 테스트를 자동 실행
 - `CLAUDE.md`: 이 프로젝트의 개발 지침

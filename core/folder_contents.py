@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from core.project_folders import _sort_key
+from core.project_folders import _sort_key, is_hidden
 
 FOLDER_KIND = "폴더"
 UNKNOWN_VALUE = "--"
@@ -96,7 +96,7 @@ def list_media_files(folder: Path) -> list[str]:
         entry.name
         for entry in folder.iterdir()
         if entry.is_file()
-        and not entry.name.startswith(".")
         and entry.suffix.lower() in MEDIA_SUFFIXES
+        and not is_hidden(entry)
     ]
     return sorted(names, key=_sort_key)

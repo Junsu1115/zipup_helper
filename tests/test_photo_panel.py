@@ -1,17 +1,18 @@
 """사진 칸과 사진 선택 테스트. 실제 포토샵은 실행하지 않고 가짜 명령만 사용한다."""
 
 import os
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QProcess, QSize, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidget, QPushButton, QTreeWidget
 
-from core.external_apps import EXTERNAL_APPS
+from core.external_apps import EXTERNAL_APPS, AppNotFoundError
 from ui.folder_browser import FolderBrowser, ViewMode
 from ui.gc_guard import install_main_thread_gc
 from ui.main_window import MainWindow
@@ -34,22 +35,32 @@ def app() -> Iterator[QApplication]:
     yield application
 
 
-@pytest.fixture(autouse=True)
-def fake_open_command() -> Iterator[MagicMock]:
-    """테스트 중에 실제 포토샵이 실행되지 않도록 아무 일도 하지 않는 명령으로 바꾼다."""
-    with patch(
-        "ui.photo_panel.build_open_command", return_value=["/usr/bin/true"]
-    ) as command:
-        yield command
+SUCCESS_COMMAND = [sys.executable, "-c", ""]
+FAILURE_COMMAND = [sys.executable, "-c", "import sys; sys.exit(1)"]
 
 
 @pytest.fixture(autouse=True)
-def fake_default_open_command() -> Iterator[MagicMock]:
-    """테스트 중에 실제 기본 프로그램이 열리지 않도록 아무 일도 하지 않는 명령으로 바꾼다."""
-    with patch(
-        "ui.photo_panel.build_default_open_command", return_value=["/usr/bin/true"]
-    ) as command:
-        yield command
+def fake_launcher() -> Iterator[MagicMock]:
+    """테스트 중에 실제 포토샵이 실행되지 않도록 가짜 실행 방식으로 바꾼다."""
+    launcher = MagicMock()
+    launcher.opens_detached = False
+    with patch("ui.photo_panel.get_app_launcher", return_value=launcher):
+        yield launcher
+
+
+@pytest.fixture(autouse=True)
+def fake_open_command(fake_launcher: MagicMock) -> MagicMock:
+    """아무 일도 하지 않는 명령을 만드는 가짜 함수를 제공한다."""
+    fake_launcher.build_command.return_value = SUCCESS_COMMAND
+    return fake_launcher.build_command
+
+
+@pytest.fixture(autouse=True)
+def fake_desktop_services() -> Iterator[MagicMock]:
+    """테스트 중에 실제 기본 프로그램이 열리지 않도록 가짜로 바꾼다."""
+    with patch("ui.photo_panel.QDesktopServices") as services:
+        services.openUrl.return_value = True
+        yield services
 
 
 @pytest.fixture
@@ -232,7 +243,7 @@ def test_failed_open_warns(
     panel: PhotoPanel, tmp_path: Path, fake_open_command: MagicMock
 ) -> None:
     """프로그램을 찾지 못해 명령이 실패하면 경고하는지 확인한다."""
-    fake_open_command.return_value = ["/bin/sh", "-c", "exit 1"]
+    fake_open_command.return_value = FAILURE_COMMAND
     panel.set_image(_save_image(tmp_path / "사진.png"))
 
     with patch("ui.photo_panel.warn") as warning:
@@ -247,7 +258,7 @@ def test_command_that_cannot_start_warns(
     panel: PhotoPanel, tmp_path: Path, fake_open_command: MagicMock
 ) -> None:
     """명령 자체를 실행하지 못해도 경고하고 다시 시도할 수 있는지 확인한다."""
-    fake_open_command.return_value = ["/없는/명령"]
+    fake_open_command.return_value = [str(tmp_path / "없는명령")]
     panel.set_image(_save_image(tmp_path / "사진.png"))
 
     with patch("ui.photo_panel.warn") as warning:
@@ -256,7 +267,7 @@ def test_command_that_cannot_start_warns(
 
     warning.assert_called_once()
 
-    fake_open_command.return_value = ["/usr/bin/true"]
+    fake_open_command.return_value = SUCCESS_COMMAND
     with patch("ui.photo_panel.warn") as warning:
         _app_button(panel).click()
         assert _wait_until(lambda: panel._open_process is None)
@@ -477,32 +488,82 @@ def test_double_click_right_after_entering_folder_is_ignored(
     assert [path.name for path in received] == ["d.png"]
 
 
-def test_open_with_default_app_runs_default_command(
-    panel: PhotoPanel, tmp_path: Path, fake_default_open_command: MagicMock
+def test_open_with_default_app_opens_file_url(
+    panel: PhotoPanel, tmp_path: Path, fake_desktop_services: MagicMock
 ) -> None:
-    """기본 프로그램 명령을 해당 사진으로 실행하는지 확인한다."""
+    """기본 프로그램 열기가 파일 주소로 요청되는지 확인한다."""
     path = tmp_path / "사진.png"
 
     with patch("ui.photo_panel.warn") as warning:
         panel.open_with_default_app(path)
-        assert _wait_until(lambda: panel._open_process is None)
 
-    fake_default_open_command.assert_called_once_with(path)
+    url = fake_desktop_services.openUrl.call_args.args[0]
+    assert url.isLocalFile()
+    assert Path(url.toLocalFile()) == path
     warning.assert_not_called()
 
 
 def test_open_with_default_app_warns_on_failure(
-    panel: PhotoPanel, tmp_path: Path, fake_default_open_command: MagicMock
+    panel: PhotoPanel, tmp_path: Path, fake_desktop_services: MagicMock
 ) -> None:
     """열지 못하면 파일 이름이 있는 경고를 띄우는지 확인한다."""
-    fake_default_open_command.return_value = ["/bin/sh", "-c", "exit 1"]
+    fake_desktop_services.openUrl.return_value = False
 
     with patch("ui.photo_panel.warn") as warning:
         panel.open_with_default_app(tmp_path / "도형.emf")
-        assert _wait_until(lambda: panel._open_process is None)
 
     warning.assert_called_once()
     assert "도형.emf" in warning.call_args.args[2]
+
+
+def test_detached_launcher_does_not_wait_for_program(
+    panel: PhotoPanel, tmp_path: Path, fake_launcher: MagicMock
+) -> None:
+    """Windows 방식은 종료를 기다리지 않아 다음 열기를 막지 않는지 확인한다."""
+    fake_launcher.opens_detached = True
+    fake_launcher.build_command.return_value = ["C:/앱/Photoshop.exe", "사진.png"]
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    with patch.object(
+        QProcess, "startDetached", return_value=(True, 123)
+    ) as start_detached:
+        _app_button(panel).click()
+        _app_button(panel).click()
+
+    assert start_detached.call_count == 2
+    start_detached.assert_called_with("C:/앱/Photoshop.exe", ["사진.png"])
+    assert panel._open_process is None
+
+
+def test_detached_start_failure_warns(
+    panel: PhotoPanel, tmp_path: Path, fake_launcher: MagicMock
+) -> None:
+    """Windows 방식에서 시작하지 못하면 경고하는지 확인한다."""
+    fake_launcher.opens_detached = True
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    with (
+        patch.object(QProcess, "startDetached", return_value=(False, 0)),
+        patch("ui.photo_panel.warn") as warning,
+    ):
+        _app_button(panel).click()
+
+    warning.assert_called_once()
+    assert "Adobe Photoshop" in warning.call_args.args[2]
+
+
+def test_app_not_found_warns_without_running(
+    panel: PhotoPanel, tmp_path: Path, fake_launcher: MagicMock
+) -> None:
+    """프로그램을 찾지 못하면 실행하지 않고 경고하는지 확인한다."""
+    fake_launcher.build_command.side_effect = AppNotFoundError("Adobe Photoshop")
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    with patch("ui.photo_panel.warn") as warning:
+        _app_button(panel).click()
+
+    warning.assert_called_once()
+    assert panel._open_process is None
 
 
 @pytest.fixture
@@ -521,7 +582,7 @@ def main_window(app: QApplication, tmp_path: Path) -> Iterator[MainWindow]:
 
 
 def test_main_window_double_click_opens_with_default_app(
-    main_window: MainWindow, fake_default_open_command: MagicMock
+    main_window: MainWindow, fake_desktop_services: MagicMock
 ) -> None:
     """메인 창에서 사진을 더블클릭하면 기본 프로그램으로 열고 칸에도 표시되는지 확인한다."""
     browser = main_window.findChild(FolderBrowser)
@@ -529,9 +590,8 @@ def test_main_window_double_click_opens_with_default_app(
 
     _double_click_icon(browser, "a.png")
 
-    assert _wait_until(lambda: panel._open_process is None)
-    fake_default_open_command.assert_called_once()
-    assert fake_default_open_command.call_args.args[0].name == "a.png"
+    url = fake_desktop_services.openUrl.call_args.args[0]
+    assert Path(url.toLocalFile()).name == "a.png"
     assert panel._name_label.text() == "a.png"
 
 

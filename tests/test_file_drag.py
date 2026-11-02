@@ -72,15 +72,15 @@ def _drag_on(widget: QWidget, start: QPoint, distance: int = 40) -> None:
     )
 
 
-def test_mime_data_contains_file_url(app: QApplication) -> None:
+def test_mime_data_contains_file_url(app: QApplication, tmp_path: Path) -> None:
     """드래그 데이터에 공백과 한글이 있는 파일 경로가 정확히 담기는지 확인한다."""
-    path = Path("/작업 폴더/사진 1.png")
+    path = tmp_path / "작업 폴더" / "사진 1.png"
 
     mime_data = build_file_mime_data([path])
 
     assert mime_data.urls() == [QUrl.fromLocalFile(str(path))]
     assert mime_data.urls()[0].isLocalFile()
-    assert mime_data.urls()[0].toLocalFile() == str(path)
+    assert Path(mime_data.urls()[0].toLocalFile()) == path
 
 
 def test_start_file_drag_allows_copy_only(app: QApplication, tmp_path: Path) -> None:
@@ -96,7 +96,7 @@ def test_start_file_drag_allows_copy_only(app: QApplication, tmp_path: Path) -> 
     drag = drag_class.return_value
     drag_class.assert_called_once_with(source)
     drag.exec.assert_called_once_with(Qt.DropAction.CopyAction)
-    assert drag.setMimeData.call_args.args[0].urls()[0].toLocalFile() == str(path)
+    assert Path(drag.setMimeData.call_args.args[0].urls()[0].toLocalFile()) == path
     shown = drag.setPixmap.call_args.args[0]
     assert shown.width() == DRAG_PIXMAP_SIZE.width()
     assert shown.height() == DRAG_PIXMAP_SIZE.height() // 2
@@ -210,13 +210,13 @@ def test_short_click_selects_without_drag(browser: FolderBrowser) -> None:
     assert [item.text() for item in folder_list.selectedItems()] == ["a.png"]
 
 
-def test_mime_data_contains_all_files(app: QApplication) -> None:
+def test_mime_data_contains_all_files(app: QApplication, tmp_path: Path) -> None:
     """여러 파일이 드래그 데이터에 모두 담기는지 확인한다."""
-    paths = [Path("/폴더/a.png"), Path("/폴더/b.png")]
+    paths = [tmp_path / "a.png", tmp_path / "b.png"]
 
     urls = build_file_mime_data(paths).urls()
 
-    assert [url.toLocalFile() for url in urls] == ["/폴더/a.png", "/폴더/b.png"]
+    assert [Path(url.toLocalFile()) for url in urls] == paths
 
 
 def test_dragging_selected_images_carries_all(
