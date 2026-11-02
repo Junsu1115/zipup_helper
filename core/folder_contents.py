@@ -43,6 +43,11 @@ def name_sort_key(name: str) -> tuple[tuple[str | int, ...], str]:
     return _sort_key(name)
 
 
+def is_image_file(path: Path) -> bool:
+    """사진 형식의 파일 이름인지 반환한다."""
+    return path.suffix.lower() in IMAGE_SUFFIXES
+
+
 def _file_kind(path: Path) -> str:
     """파일의 종류 문구를 반환한다."""
     label = "동영상" if path.suffix.lower() in VIDEO_SUFFIXES else "이미지"

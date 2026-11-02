@@ -21,16 +21,20 @@ from PySide6.QtWidgets import (
 )
 
 from core.external_apps import EXTERNAL_APPS, AppNotFoundError, get_app_launcher
-from core.folder_contents import format_size, read_entry_details
+from core.folder_contents import format_size, is_image_file, read_entry_details
+from core.prompt_templates import load_image_analysis_template
 from ui.file_drag import start_file_drag
 from ui.message_boxes import warn
 from ui.thumbnail_loader import PreviewLoader
+from ui.toast import show_toast
 
 MINIMUM_PANEL_WIDTH = 220
 NO_SELECTION_TEXT = "사진을 선택하세요"
 LOADING_TEXT = "불러오는 중..."
 NO_PREVIEW_TEXT = "미리보기를 표시할 수 없습니다"
 OPEN_ERROR_TITLE = "프로그램 열기 오류"
+TEMPLATE_BUTTON_TEXT = "이미지 분석 템플릿 사용"
+TEMPLATE_ERROR_TITLE = "템플릿 복사 오류"
 
 
 class _DraggablePreviewLabel(QLabel):
@@ -103,6 +107,10 @@ class PhotoPanel(QWidget):
             layout.addWidget(button)
         self._app_buttons.idClicked.connect(self._on_app_button_clicked)
 
+        self._template_button = QPushButton(TEMPLATE_BUTTON_TEXT)
+        self._template_button.clicked.connect(self._on_template_button_clicked)
+        layout.addWidget(self._template_button)
+
         self.set_image(None)
 
     def set_images(self, paths: list[Path]) -> None:
@@ -110,6 +118,7 @@ class PhotoPanel(QWidget):
         if len(paths) > 1:
             self.set_image(None)
             self._preview_label.setText(f"파일 {len(paths)}개 선택됨")
+            self._update_template_button(paths)
         else:
             self.set_image(paths[0] if paths else None)
 
@@ -123,6 +132,7 @@ class PhotoPanel(QWidget):
         self._stop_current_loaders()
         for button in self._app_buttons.buttons():
             button.setEnabled(path is not None)
+        self._update_template_button([] if path is None else [path])
 
         if path is None:
             self._preview_label.setText(NO_SELECTION_TEXT)
@@ -134,6 +144,10 @@ class PhotoPanel(QWidget):
         self._name_label.setText(path.name)
         self._info_label.setText(format_size(read_entry_details(path, False).size))
         self._start_preview_loading(path)
+
+    def _update_template_button(self, paths: list[Path]) -> None:
+        """선택한 파일에 사진이 있을 때만 템플릿 버튼을 켠다."""
+        self._template_button.setEnabled(any(map(is_image_file, paths)))
 
     def _start_preview_loading(self, path: Path) -> None:
         """별도 스레드에서 미리보기 읽기를 시작한다."""
@@ -193,6 +207,20 @@ class PhotoPanel(QWidget):
         """칸 크기가 바뀌면 미리보기를 다시 맞춘다."""
         super().resizeEvent(event)
         self._show_scaled_preview()
+
+    def _on_template_button_clicked(self) -> None:
+        """이미지 분석 템플릿을 클립보드에 복사하고 알린다. 실패하면 클립보드를 그대로 둔다."""
+        try:
+            template = load_image_analysis_template()
+        except OSError as error:
+            warn(
+                self,
+                TEMPLATE_ERROR_TITLE,
+                f"템플릿 파일을 읽지 못했습니다.\n\n{error}",
+            )
+            return
+        QApplication.clipboard().setText(template)
+        show_toast(self, "클립보드에 복사되었습니다.")
 
     def _on_app_button_clicked(self, app_index: int) -> None:
         """누른 버튼의 프로그램으로 선택한 사진을 연다."""

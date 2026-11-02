@@ -11,6 +11,7 @@ import pytest
 from core.folder_contents import (
     format_modified,
     format_size,
+    is_image_file,
     list_media_files,
     read_entry_details,
 )
@@ -99,6 +100,14 @@ def test_excludes_windows_hidden_files(tmp_path: Path) -> None:
 
     with patch.object(Path, "stat", hidden_stat):
         assert list_media_files(tmp_path) == []
+
+
+def test_is_image_file_tells_images_from_videos() -> None:
+    """사진 형식만 사진으로 판별하고, 대문자 확장자도 인식하는지 확인한다."""
+    assert is_image_file(Path("a.PNG"))
+    assert is_image_file(Path("a.emf"))
+    assert not is_image_file(Path("a.mp4"))
+    assert not is_image_file(Path("a.txt"))
 
 
 def test_lists_video_files(tmp_path: Path) -> None:

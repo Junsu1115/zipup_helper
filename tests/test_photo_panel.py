@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QListWidget, QPushButton, QTreeWidget
 
 from core.external_apps import EXTERNAL_APPS, AppNotFoundError
+from core.prompt_templates import load_image_analysis_template
 from ui.folder_browser import FolderBrowser, ViewMode
 from ui.gc_guard import install_main_thread_gc
 from ui.main_window import MainWindow
@@ -24,6 +25,7 @@ from ui.photo_panel import (
 )
 from ui.project_selector import ProjectSelector
 from ui.thumbnail_loader import load_preview
+from ui.toast import _Toast
 
 
 @pytest.fixture(scope="session")
@@ -228,6 +230,141 @@ def test_button_runs_command_for_selected_image(
 
     fake_open_command.assert_called_once_with(EXTERNAL_APPS[0], path)
     warning.assert_not_called()
+
+
+def _click_template_button(panel: PhotoPanel) -> MagicMock:
+    """사용 중인 클립보드 대신 가짜 클립보드로 템플릿 버튼을 누르고, 가짜를 반환한다."""
+    clipboard = MagicMock()
+    with patch("ui.photo_panel.QApplication.clipboard", return_value=clipboard):
+        panel._template_button.click()
+    return clipboard
+
+
+def test_template_button_is_below_app_button(panel: PhotoPanel) -> None:
+    """템플릿 버튼이 문구에 맞게 포토샵 버튼 바로 아래에 있는지 확인한다."""
+    layout = panel.layout()
+    app_index = layout.indexOf(_app_button(panel))
+
+    assert panel._template_button.text() == "이미지 분석 템플릿 사용"
+    assert layout.indexOf(panel._template_button) == app_index + 1
+    assert panel._template_button.y() > _app_button(panel).y()
+
+
+def test_template_button_copies_whole_template_and_shows_toast(
+    panel: PhotoPanel, tmp_path: Path
+) -> None:
+    """사진을 선택한 뒤 누르면 템플릿 전체가 복사되고 하단 알림이 뜨는지 확인한다."""
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    clipboard = _click_template_button(panel)
+
+    clipboard.setText.assert_called_once_with(load_image_analysis_template())
+    assert panel.findChild(_Toast).text() == "클립보드에 복사되었습니다"
+
+
+def test_template_button_is_disabled_without_image(panel: PhotoPanel) -> None:
+    """선택이 없으면 꺼져 있고, 눌러도 복사하지 않는지 확인한다."""
+    assert not panel._template_button.isEnabled()
+
+    clipboard = _click_template_button(panel)
+
+    clipboard.setText.assert_not_called()
+    assert panel.findChild(_Toast) is None
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        ([], False),
+        (["a.png"], True),
+        (["도형.emf"], True),
+        (["a.png", "b.jpg"], True),
+        (["a.png", "movie.mp4"], True),
+        (["movie.mp4"], False),
+        (["a.mp4", "b.mov"], False),
+    ],
+)
+def test_template_button_follows_selection(
+    panel: PhotoPanel, tmp_path: Path, names: list[str], expected: bool
+) -> None:
+    """선택한 파일에 사진이 있을 때만 켜지는지 확인한다."""
+    paths = [tmp_path / name for name in names]
+    for path in paths:
+        path.write_bytes(b"x")
+
+    panel.set_images(paths)
+
+    assert panel._template_button.isEnabled() is expected
+
+
+def test_template_button_turns_off_when_selection_is_cleared(
+    panel: PhotoPanel, tmp_path: Path
+) -> None:
+    """선택이 풀리면 다시 꺼지는지 확인한다."""
+    panel.set_images([_save_image(tmp_path / "사진.png")])
+    assert panel._template_button.isEnabled()
+
+    panel.set_images([])
+
+    assert not panel._template_button.isEnabled()
+
+
+def test_multiple_images_keep_photoshop_off_and_template_on(
+    panel: PhotoPanel, tmp_path: Path
+) -> None:
+    """여러 장을 선택하면 포토샵 버튼은 꺼지고 템플릿 버튼은 켜지는지 확인한다."""
+    panel.set_images(
+        [_save_image(tmp_path / "a.png"), _save_image(tmp_path / "b.png")]
+    )
+
+    assert not _app_button(panel).isEnabled()
+    assert panel._template_button.isEnabled()
+
+
+def test_template_button_does_not_run_external_app(
+    panel: PhotoPanel, tmp_path: Path, fake_open_command: MagicMock
+) -> None:
+    """템플릿 복사가 포토샵 실행으로 이어지지 않는지 확인한다."""
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    _click_template_button(panel)
+
+    fake_open_command.assert_not_called()
+
+
+def test_template_read_failure_warns_and_keeps_clipboard(
+    panel: PhotoPanel, tmp_path: Path
+) -> None:
+    """파일을 읽지 못하면 경고하고 클립보드와 알림을 건드리지 않는지 확인한다."""
+    panel.set_image(_save_image(tmp_path / "사진.png"))
+
+    with (
+        patch(
+            "ui.photo_panel.load_image_analysis_template",
+            side_effect=OSError("없음"),
+        ),
+        patch("ui.photo_panel.warn") as warning,
+    ):
+        clipboard = _click_template_button(panel)
+
+    warning.assert_called_once()
+    clipboard.setText.assert_not_called()
+    assert panel.findChild(_Toast) is None
+
+
+def test_main_window_template_button_follows_clicked_image(
+    main_window: MainWindow,
+) -> None:
+    """메인 창에서 사진을 누르면 켜지고, 폴더를 옮기면 꺼지는지 확인한다."""
+    browser = main_window.findChild(FolderBrowser)
+    panel = main_window.findChild(PhotoPanel)
+    assert not panel._template_button.isEnabled()
+
+    _click_icon(browser, "a.png")
+    assert panel._template_button.isEnabled()
+
+    browser.set_project(None)
+    assert not panel._template_button.isEnabled()
 
 
 def test_disabled_button_runs_nothing(

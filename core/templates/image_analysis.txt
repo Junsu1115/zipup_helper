@@ -1,0 +1,47 @@
+# Image Reproduction Analysis Instructions
+
+Analyze the attached image in the order below so it can be reproduced as closely as possible.
+Express all positions in frame coordinates (horizontal 0–100%, vertical 0–100%, top-left is 0,0).
+Tag every estimated value with [Confirmed] or [Estimated], and give a one-line reason for each estimate.
+Write the analysis tables and the report in Korean.
+
+## 1. Camera
+- Aspect ratio
+- Shot size (ECU / CU / MCU / MS / MLS / FS / WS / EWS)
+- Camera angle (high, eye-level, low, bird's-eye, etc.) and estimated camera height
+- Estimated focal length (mm range) — based on: perspective distortion, background compression, facial proportions of subjects
+- Estimated aperture and depth of field — which layer is in focus, bokeh shape
+- Composition (rule of thirds, centered, diagonal, leading lines, etc.) and horizon tilt
+
+## 2. Props by Layer (Foreground / Midground / Background)
+For each prop:
+- Name, material, color (approximate hex)
+- Position in frame (coordinates) and frame coverage (%)
+- Focus state (sharp / slightly soft / bokeh)
+- Overlap with other elements
+
+## 3. Subjects
+- Number of people
+- Each person's position in frame (coordinates), frame coverage (%), and where the frame crops them
+- Pose, body direction, gaze direction, facial expression
+- Clothing (color, material, fit) and hair
+
+## 4. Lighting
+- Time of day and weather
+- Key light: direction (clock position relative to the subject, e.g. 2 o'clock), height, hard/soft, color temperature (K)
+- Fill light, rim/back light, and bounce light — presence and direction
+- Shadow pattern on the subjects' faces (Rembrandt, Loop, Butterfly, Split, etc.)
+- Contrast ratio and shadow edge sharpness
+- For interiors, the location of practical light sources (windows, fixtures)
+
+## 5. Color and Texture
+- Main color palette (5 hex values)
+- Saturation, contrast, white balance, color grading tendency
+- Film grain, noise, sharpness, lens flare or vignetting
+
+## 6. Output
+1. Organize the analysis above into tables.
+2. Write an English prompt in the following order. Add items if needed.
+   Shot type, time, foreground, midground, background, subject, subject placement, lighting, lighting on subject, camera & lens, composition, color & texture, --negative
+3. Provide a Korean translation of the English prompt.
+4. Report: explain why each item was judged as it was, and list the 3 elements most likely to go wrong in reproduction along with how to correct them.
