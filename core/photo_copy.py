@@ -1,6 +1,7 @@
 """파일을 정해진 폴더로 복사하고, Pub 폴더의 파일을 삭제한다."""
 
 import shutil
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,9 @@ from PySide6.QtCore import QFile
 
 from core.folder_contents import is_image_file
 from core.project_folders import is_hidden
+
+TRASH_ATTEMPTS = 3
+TRASH_RETRY_SECONDS = 0.2
 
 WORK_FOLDER = "Work"
 PUB_FOLDER = "Pub"
@@ -164,6 +168,16 @@ def _move_to_trash(path: Path) -> bool:
     return QFile.moveToTrash(str(path))
 
 
+def _move_to_trash_with_retry(path: Path) -> bool:
+    """휴지통으로 옮긴다. Windows에서 사진을 읽는 동안에는 실패하므로 잠시 뒤 다시 시도한다."""
+    for attempt in range(TRASH_ATTEMPTS):
+        if attempt:
+            time.sleep(TRASH_RETRY_SECONDS)
+        if _move_to_trash(path):
+            return True
+    return False
+
+
 def delete_from_pub(paths: Iterable[Path], project: Path) -> PhotoDeleteSummary:
     """Pub 폴더의 파일을 휴지통으로 옮긴다. 실수로 지우지 않도록 Pub 밖의 파일은 거부한다."""
     summary = PhotoDeleteSummary()
@@ -172,7 +186,7 @@ def delete_from_pub(paths: Iterable[Path], project: Path) -> PhotoDeleteSummary:
             summary.failures.append(
                 f"'{path.name}': Pub 폴더의 파일이 아니어서 삭제하지 않았습니다."
             )
-        elif _move_to_trash(path):
+        elif _move_to_trash_with_retry(path):
             summary.deleted_count += 1
         else:
             summary.failures.append(f"'{path.name}': 휴지통으로 옮기지 못했습니다.")

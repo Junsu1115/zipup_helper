@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QObject, QPoint, Qt
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -27,7 +27,12 @@ from ui.folder_browser import (
     FolderBrowser,
     ViewMode,
 )
-from ui.folder_watcher import DebouncedFolderWatcher
+from ui.folder_watcher import (
+    DebouncedFolderWatcher,
+    _create_change_source,
+    _PollingChangeSource,
+    _SystemChangeSource,
+)
 from ui.gc_guard import install_main_thread_gc
 from ui.main_window import MainWindow
 from ui.project_selector import ProjectSelector
@@ -1324,6 +1329,70 @@ def test_watcher_replaces_watched_paths(app: QApplication, tmp_path: Path) -> No
 
     (new / "하위").mkdir()
     assert _wait_until(lambda: received == [True])
+
+
+def _polling_source(paths: list[Path]) -> tuple[_PollingChangeSource, list[bool]]:
+    """주기를 짧게 한 비교 방식 감시기와 알림 기록을 만든다."""
+    source = _PollingChangeSource(interval_ms=20)
+    received: list[bool] = []
+    source.changed.connect(lambda: received.append(True))
+    source.set_paths([str(path) for path in paths])
+    return source, received
+
+
+def test_polling_detects_added_changed_and_removed_files(
+    app: QApplication, tmp_path: Path
+) -> None:
+    """파일이 생기거나 바뀌거나 지워지면 알리고, 그대로면 알리지 않는지 확인한다."""
+    file = tmp_path / "a.txt"
+    source, received = _polling_source([tmp_path])
+    QTest.qWait(80)
+    assert received == []
+
+    file.write_text("1", encoding="utf-8")
+    assert _wait_until(lambda: len(received) == 1)
+    QTest.qWait(80)
+    assert len(received) == 1
+
+    file.write_text("길어진 내용", encoding="utf-8")
+    assert _wait_until(lambda: len(received) == 2)
+
+    file.unlink()
+    assert _wait_until(lambda: len(received) == 3)
+    source.set_paths([])
+
+
+def test_polling_allows_renaming_and_detects_moved_folder(
+    app: QApplication, tmp_path: Path
+) -> None:
+    """감시 중에도 폴더 이름을 바꿀 수 있고, 사라진 것을 알리는지 확인한다."""
+    parent = tmp_path / "상위"
+    folder = parent / "하위"
+    folder.mkdir(parents=True)
+    source, received = _polling_source([folder])
+
+    parent.rename(tmp_path / "옮김")
+
+    assert _wait_until(lambda: received == [True])
+    source.set_paths([])
+
+
+def test_polling_stops_without_paths(app: QApplication, tmp_path: Path) -> None:
+    """감시할 폴더가 없으면 비교를 멈추는지 확인한다."""
+    source, received = _polling_source([tmp_path])
+    source.set_paths([])
+
+    (tmp_path / "새폴더").mkdir()
+    QTest.qWait(80)
+
+    assert received == []
+
+
+def test_change_source_depends_on_platform(app: QApplication) -> None:
+    """Windows에서는 폴더를 붙잡지 않는 방식을 쓰는지 확인한다."""
+    parent = QObject()
+    assert isinstance(_create_change_source(parent, "win32"), _PollingChangeSource)
+    assert isinstance(_create_change_source(parent, "darwin"), _SystemChangeSource)
 
 
 @pytest.fixture

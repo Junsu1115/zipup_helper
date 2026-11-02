@@ -843,6 +843,8 @@ class FolderBrowser(QWidget):
         if not confirm(self, PHOTO_DELETE_TITLE, question):
             return
 
+        # Windows에서는 썸네일을 만드느라 읽는 중인 파일을 지울 수 없다.
+        self.stop_thumbnail_loading()
         summary = delete_from_pub(selected, self._project)
         self._refresh()
         if summary.deleted_count:
@@ -943,7 +945,7 @@ class FolderBrowser(QWidget):
             loader.requestInterruption()
 
     def stop_thumbnail_loading(self) -> None:
-        """썸네일 생성을 중단하고 스레드가 끝나기를 기다린다. 프로그램 종료 시 호출한다."""
+        """썸네일 생성을 중단하고 스레드가 끝나기를 기다린다. 종료나 파일 삭제 전에 호출한다."""
         self._stop_current_loaders()
         for loader in self._thumbnail_loaders:
             loader.wait()

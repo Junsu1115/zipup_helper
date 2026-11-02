@@ -975,6 +975,57 @@ def test_delete_failure_shows_warning(
     assert browser.findChild(_Toast) is None
 
 
+def test_delete_retries_while_file_is_in_use(
+    tmp_path: Path, fake_trash: MagicMock
+) -> None:
+    """파일을 읽는 중이라 실패해도 다시 시도해서 지우는지 확인한다."""
+    copied = _write_files(tmp_path / "Pub", "a.png")[0]
+    fake_trash.side_effect = [False, True]
+
+    with patch("core.photo_copy.time.sleep") as sleep:
+        summary = delete_from_pub([copied], tmp_path)
+
+    assert summary.deleted_count == 1
+    assert summary.failures == []
+    assert fake_trash.call_count == 2
+    sleep.assert_called_once()
+
+
+def test_delete_gives_up_after_retries(tmp_path: Path, fake_trash: MagicMock) -> None:
+    """계속 실패하면 몇 번만 시도하고 실패를 알리는지 확인한다."""
+    copied = _write_files(tmp_path / "Pub", "a.png")[0]
+    fake_trash.side_effect = None
+    fake_trash.return_value = False
+
+    with patch("core.photo_copy.time.sleep"):
+        summary = delete_from_pub([copied], tmp_path)
+
+    assert summary.deleted_count == 0
+    assert len(summary.failures) == 1
+    assert fake_trash.call_count == 3
+    assert copied.exists()
+
+
+def test_delete_waits_for_thumbnails_first(
+    browser: FolderBrowser, project: Path, fake_trash: MagicMock
+) -> None:
+    """지우기 전에 썸네일 만들기를 멈추는지 확인한다."""
+    _save_image(project / "Pub" / "a.png")
+    browser._navigate_to(project / "Pub")
+    order: list[str] = []
+    fake_trash.side_effect = lambda _path: order.append("삭제") or True
+
+    with (
+        patch("ui.folder_browser.confirm", return_value=True),
+        patch.object(
+            browser, "stop_thumbnail_loading", side_effect=lambda: order.append("중단")
+        ),
+    ):
+        _choose_menu_action(browser, "a.png")
+
+    assert order == ["중단", "삭제"]
+
+
 def test_main_window_multi_selection_updates_panel(
     app: QApplication, project: Path, tmp_path: Path
 ) -> None:

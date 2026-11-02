@@ -528,13 +528,24 @@ def test_clicking_folder_enters_without_selecting(browser: FolderBrowser) -> Non
     assert _selected_icons(browser) == []
 
 
+def _unlink_when_free(path: Path) -> None:
+    """파일을 지운다. Windows에서 미리보기가 읽는 동안에는 잠시 기다렸다가 다시 시도한다."""
+    for _ in range(50):
+        try:
+            path.unlink()
+            return
+        except PermissionError:
+            QTest.qWait(50)
+    path.unlink()
+
+
 def test_deleted_image_clears_selection(browser: FolderBrowser) -> None:
     """선택한 사진이 지워지면 선택이 풀리는지 확인한다."""
     _click_icon(browser, "a.png")
     selected = browser._selected_images[0]
     received = _record_selection(browser)
 
-    selected.unlink()
+    _unlink_when_free(selected)
 
     assert _wait_until(lambda: received == [None])
     assert _selected_icons(browser) == []
