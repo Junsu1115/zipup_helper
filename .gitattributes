@@ -1,0 +1,3 @@
+# Windows 설치 파일은 Windows 줄바꿈으로, Mac 설치 파일은 Mac 줄바꿈으로 둔다.
+*.bat text eol=crlf
+*.command text eol=lf

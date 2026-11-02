@@ -27,3 +27,31 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt
       - run: python -X faulthandler -m pytest -q --basetemp=.pytest_tmp -o faulthandler_timeout=120
+
+  # 설치 파일을 실제로 실행해서 helper 명령과 바로가기가 만들어지는지 확인한다.
+  install-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: install_windows.bat nopause
+        shell: cmd
+      - run: |
+          if (-not (Test-Path "$env:LOCALAPPDATA\zipup_helper\helper.cmd")) { exit 1 }
+          $desktop = [Environment]::GetFolderPath('Desktop')
+          if (-not (Test-Path (Join-Path $desktop 'zipup_helper.lnk'))) { exit 1 }
+        shell: pwsh
+
+  install-mac:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: ./install_mac.command < /dev/null
+      - run: test -x "$HOME/.local/bin/helper" && test -d "$HOME/Desktop/zipup_helper.app"

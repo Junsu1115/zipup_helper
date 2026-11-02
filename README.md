@@ -32,8 +32,6 @@
 
 처음에 **한 번만** 하면 됩니다. 인터넷이 연결되어 있어야 합니다. 순서대로 따라 하면 어렵지 않습니다.
 
-"터미널"과 "PowerShell"은 글자로 컴퓨터에게 명령하는 창입니다. 아래 글자를 **복사해서 붙여넣고 `Enter`** 를 누르면 됩니다. 글자가 많이 지나가도 괜찮습니다.
-
 자기 컴퓨터에 맞는 쪽만 보세요.
 
 - [Mac에서 설치하기](#mac에서-설치하기)
@@ -58,33 +56,24 @@ Python은 이 프로그램을 움직이는 데 필요한 도구입니다.
 
 **3단계. 프로그램 설치하기**
 
-1. `⌘ + Space`를 누르고 `터미널`을 입력한 뒤 `Enter`를 누릅니다.
-2. 아래 세 줄을 한 줄씩 붙여넣고 `Enter`를 누릅니다. 세 번째 줄은 몇 분 걸릴 수 있습니다.
+1. `zipup_helper-main` 폴더를 열고 `install_mac.command`를 더블클릭합니다.
+2. 창이 뜨고 설치가 시작됩니다. 몇 분 걸릴 수 있고, 글자가 많이 지나가도 괜찮습니다.
+3. `설치가 끝났습니다`가 나오면 `Enter`를 누르고 창을 닫습니다.
+
+"열 수 없습니다" 같은 경고가 나오면, `⌘ + Space`를 누르고 `터미널`을 입력해 터미널을 연 뒤 아래 줄을 붙여넣고 `Enter`를 누릅니다.
 
 ```bash
-cd ~/Documents/zipup_helper-main
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+bash ~/Documents/zipup_helper-main/install_mac.command
 ```
 
-**4단계. Project 폴더 만들기**
+**4단계. 프로그램 켜기**
 
-프로젝트들이 모일 폴더입니다.
+앞으로는 아래 둘 중 편한 방법으로 켜면 됩니다.
 
-1. Finder를 열고 `⌘ + Shift + H`를 누릅니다.
-2. 빈 곳에서 마우스 오른쪽 버튼을 누르고 **새로운 폴더**를 고릅니다.
-3. 이름을 `Project`로 짓습니다. 첫 글자만 대문자입니다.
+- 바탕화면의 **zipup_helper** 아이콘을 더블클릭합니다.
+- 터미널을 새로 열고 `helper`를 입력한 뒤 `Enter`를 누릅니다.
 
-**5단계. 프로그램 켜기**
-
-터미널에 아래 두 줄을 붙여넣으면 프로그램이 켜집니다. **앞으로 쓸 때도 이 두 줄만 하면 됩니다.**
-
-```bash
-cd ~/Documents/zipup_helper-main
-.venv/bin/python main.py
-```
-
-프로그램을 쓰는 동안 터미널 창을 닫으면 프로그램도 꺼지니 그대로 두세요.
+프로그램을 켠 뒤에는 터미널 창을 닫아도 프로그램이 꺼지지 않습니다.
 
 ### Windows에서 설치하기
 
@@ -106,33 +95,20 @@ cd ~/Documents/zipup_helper-main
 
 **3단계. 프로그램 설치하기**
 
-1. 시작 메뉴에서 `PowerShell`을 찾아 엽니다.
-2. 아래 세 줄을 한 줄씩 붙여넣고 `Enter`를 누릅니다. 세 번째 줄은 몇 분 걸릴 수 있습니다.
+1. `zipup_helper-main` 폴더를 열고 `install_windows.bat`을 더블클릭합니다.
+2. 창이 뜨고 설치가 시작됩니다. 몇 분 걸릴 수 있고, 글자가 많이 지나가도 괜찮습니다.
+3. `설치가 끝났습니다`가 나오면 아무 키나 눌러 창을 닫습니다.
 
-```powershell
-cd "$HOME\Documents\zipup_helper-main"
-py -3.12 -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-```
+"Windows의 PC 보호" 창이 나오면 **추가 정보**를 누르고 **실행**을 누릅니다.
 
-**4단계. Project 폴더 만들기**
+**4단계. 프로그램 켜기**
 
-PowerShell에 아래 줄을 붙여넣습니다.
+앞으로는 아래 둘 중 편한 방법으로 켜면 됩니다.
 
-```powershell
-mkdir "$HOME\Project"
-```
+- 바탕화면의 **zipup_helper** 아이콘을 더블클릭합니다.
+- PowerShell을 새로 열고 `helper`를 입력한 뒤 `Enter`를 누릅니다.
 
-**5단계. 프로그램 켜기**
-
-PowerShell에 아래 두 줄을 붙여넣으면 프로그램이 켜집니다. **앞으로 쓸 때도 이 두 줄만 하면 됩니다.**
-
-```powershell
-cd "$HOME\Documents\zipup_helper-main"
-.venv\Scripts\python main.py
-```
-
-프로그램을 쓰는 동안 PowerShell 창을 닫으면 프로그램도 꺼지니 그대로 두세요.
+프로그램을 켠 뒤에는 PowerShell 창을 닫아도 프로그램이 꺼지지 않습니다.
 
 ### 새 버전으로 바꾸기
 
@@ -345,10 +321,10 @@ Finder나 파일 탐색기에 있는 사진과 동영상을 **Work** 폴더 위�
 
 | 화면에 나오는 말 | 이렇게 해 보세요 |
 |---|---|
-| `command not found: python3.12` (Mac) | 터미널을 완전히 닫고 다시 엽니다. 그래도 나오면 1단계를 다시 합니다. |
-| `py`를 인식할 수 없다는 말 (Windows) | PowerShell을 닫고 다시 엽니다. 그래도 나오면 1단계를 다시 합니다. |
-| `No such file or directory`, `경로를 찾을 수 없습니다` | `zipup_helper-main` 폴더가 **문서** 폴더 바로 안에 있는지 봅니다. |
-| `ERROR`, `Could not` | 인터넷 연결을 확인하고 3단계의 세 번째 줄을 다시 합니다. |
+| `Python 3.12가 없습니다` | 1단계를 다시 하고 설치 파일을 다시 더블클릭합니다. |
+| `설치하지 못했습니다`, `ERROR`, `Could not` | 인터넷 연결을 확인하고 설치 파일을 다시 더블클릭합니다. |
+| `helper`를 입력해도 안 켜집니다 | 터미널이나 PowerShell을 닫고 다시 엽니다. |
+| 바탕화면 아이콘이나 `helper`가 안 켜집니다 | 프로그램 폴더를 옮기거나 지웠다면, 설치 파일을 다시 더블클릭합니다. |
 
 ### 쓰다가
 
@@ -369,7 +345,6 @@ Finder나 파일 탐색기에 있는 사진과 동영상을 **Work** 폴더 위�
 - 프로젝트 폴더 위치를 프로그램에서 바꿀 수 없습니다. 내 홈 폴더의 `Project`만 씁니다.
 - 옮기기를 되돌리는 버튼은 없습니다. 다시 끌어서 옮겨 주세요.
 - 프로그램을 다시 켜면 보이는 모양은 **큰 아이콘**으로 돌아갑니다.
-- 더블클릭으로 켜는 배포판은 아직 없습니다.
 - Windows에서는 아직 시험 중입니다.
 
 ## 개발자용
@@ -389,6 +364,8 @@ git clone git@github.com:Junsu1115/zipup_helper.git
 
 - `core/`: 폴더와 파일을 다루는 핵심 로직
 - `ui/`: PySide6 화면 코드
+- `scripts/setup_launcher.py`: `helper` 명령과 바탕화면 바로가기 등록
+- `assets/`: 바로가기 아이콘
 - `tests/`: 테스트. 임시 폴더와 가짜 명령만 사용하며, 실제 프로젝트 폴더나 포토샵은 건드리지 않습니다.
 - `docs/images/`: 이 설명서의 화면. 샘플 파일로 찍었습니다.
 - `core/project_folders.py`의 `PROJECT_ROOT`: 프로젝트 폴더 위치
