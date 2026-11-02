@@ -26,24 +26,59 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt
-      - run: python -X faulthandler -m pytest -q --basetemp=.pytest_tmp -o faulthandler_timeout=120
+      - shell: bash
+        run: |
+          set -o pipefail
+          python -X faulthandler -m pytest -q --tb=short --basetemp=.pytest_tmp -o faulthandler_timeout=120 2>&1 | tee pytest_output.txt
+      # 실패 내용을 주석으로 남긴다. 주석은 로그인 없이 읽을 수 있다.
+      - if: failure() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          python - <<'EOF'
+          from pathlib import Path
+          text = Path("pytest_output.txt").read_text(encoding="utf-8", errors="replace")
+          marker = "short test summary info"
+          summary = text[text.rfind(marker):] if marker in text else ""
+          body = (summary + "\n" + text)[:35000]
+          for start in range(0, len(body), 3500):
+              chunk = body[start:start + 3500]
+              chunk = chunk.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error::{chunk}")
+          EOF
 
   # 설치 파일을 실제로 실행해서 helper 명령과 바로가기가 만들어지는지 확인한다.
   install-windows:
     runs-on: windows-latest
     timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: install_windows.bat nopause
+      - run: call install_windows.bat nopause > install_output.txt 2>&1
         shell: cmd
       - run: |
           if (-not (Test-Path "$env:LOCALAPPDATA\zipup_helper\helper.cmd")) { exit 1 }
           $desktop = [Environment]::GetFolderPath('Desktop')
           if (-not (Test-Path (Join-Path $desktop 'zipup_helper.lnk'))) { exit 1 }
         shell: pwsh
+      # 실패 내용을 주석으로 남긴다. 주석은 로그인 없이 읽을 수 있다.
+      - if: failure() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          python - <<'EOF'
+          from pathlib import Path
+          text = Path("install_output.txt").read_text(encoding="utf-8", errors="replace")
+          marker = "short test summary info"
+          summary = text[text.rfind(marker):] if marker in text else ""
+          body = (summary + "\n" + text)[:35000]
+          for start in range(0, len(body), 3500):
+              chunk = body[start:start + 3500]
+              chunk = chunk.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error::{chunk}")
+          EOF
 
   install-mac:
     runs-on: macos-latest
