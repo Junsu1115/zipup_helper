@@ -557,7 +557,7 @@ def test_other_file_change_keeps_selection(browser: FolderBrowser) -> None:
     selected = browser._selected_images[0]
     received = _record_selection(browser)
 
-    (selected.parent / "b.png").unlink()
+    _unlink_when_free(selected.parent / "b.png")
 
     folder_list = browser.findChild(QListWidget)
     assert _wait_until(lambda: folder_list.count() == 2)
