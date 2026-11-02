@@ -777,7 +777,7 @@ class FolderBrowser(QWidget):
         """지금 위치와 누른 항목에 맞는 메뉴 문구와 동작을 반환한다.
 
         Pub 안의 파일은 삭제, Work 안의 파일과 폴더는 Pub으로 복사할 수 있고,
-        Work와 Reference 안에서는 어디서나 폴더를 추가할 수 있다.
+        Work와 Reference에는 폴더를 추가할 수 있다. 폴더를 눌렀으면 그 안에 추가한다.
         """
         if self._current is None or self._project is None:
             return []
@@ -797,9 +797,22 @@ class FolderBrowser(QWidget):
                         partial(self._start_folder_copy, self._current / folder_name),
                     )
                 )
-        if self._drop_area_target() is not None:
-            entries.append((ADD_FOLDER_MENU_TEXT, self._create_folders_from_dialog))
+        add_target = self._add_folder_target(folder_name)
+        if add_target is not None:
+            entries.append(
+                (
+                    ADD_FOLDER_MENU_TEXT,
+                    partial(self._create_folders_from_dialog, add_target),
+                )
+            )
         return entries
+
+    def _add_folder_target(self, folder_name: str | None) -> Path | None:
+        """폴더를 추가할 위치를 반환한다. 폴더를 눌렀으면 그 폴더, 아니면 지금 위치다."""
+        target = self._current if folder_name is None else self._current / folder_name
+        if drop_target_containing(target, self._project) is None:
+            return None
+        return target
 
     def _show_context_menu(
         self, file_name: str | None, folder_name: str | None, global_position: QPoint
@@ -1052,19 +1065,20 @@ class FolderBrowser(QWidget):
         if created_count:
             show_toast(self, "하위 폴더가 추가되었습니다")
 
-    def _create_folders_from_dialog(self) -> None:
-        """폴더 이름을 입력받아 지금 위치에 만들고 결과를 알린다."""
-        dialog = MultiFolderDialog(self._current, self)
+    def _create_folders_from_dialog(self, target: Path) -> None:
+        """폴더 이름을 입력받아 target 안에 만들고 결과를 알린다."""
+        dialog = MultiFolderDialog(target, self)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         names = dialog.folder_names()
         dialog.deleteLater()
         if not accepted:
             return
 
-        summary = create_folders(names, self._current)
+        summary = create_folders(names, target)
+        location = "" if target == self._current else f"{target.name} 안에 "
         self._refresh()
         if summary.created_count:
-            show_toast(self, f"폴더 {summary.created_count}개를 만들었습니다")
+            show_toast(self, f"{location}폴더 {summary.created_count}개를 만들었습니다")
         if summary.failures:
             warn(self, ADD_FOLDER_MENU_TEXT, "\n".join(summary.failures))
 

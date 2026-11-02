@@ -1070,22 +1070,6 @@ def test_menu_on_empty_space_creates_folders_here(
     assert browser.findChild(_Toast).text() == "폴더 2개를 만들었습니다"
 
 
-def test_menu_on_folder_creates_here_not_inside_it(
-    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
-) -> None:
-    """폴더 위에서 눌러도 그 안이 아니라 지금 위치에 만드는지 확인한다."""
-    folder = project / "Work"
-    browser._navigate_to(folder)
-
-    browser._on_list_context_menu(browser.findChild(QListWidget).visualItemRect(
-        browser.findChild(QListWidget).findItems("Image", Qt.MatchFlag.MatchExactly)[0]
-    ).center())
-
-    assert fake_folder_ui.parent_folders == [folder]
-    assert (folder / "시안1").is_dir()
-    assert not (folder / "Image" / "시안1").exists()
-
-
 def test_menu_on_empty_folder_screen_creates_folders(
     browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
 ) -> None:
@@ -1110,6 +1094,116 @@ def test_menu_in_detail_view_creates_folders(
     browser._on_tree_context_menu(QPoint(780, 480))
 
     assert (folder / "시안1").is_dir()
+
+
+def _right_click_icon(browser: FolderBrowser, name: str) -> None:
+    """이름이 같은 아이콘 위에서 오른쪽 버튼 메뉴를 연다."""
+    folder_list = browser.findChild(QListWidget)
+    browser._on_list_context_menu(
+        folder_list.visualItemRect(_item(browser, name)).center()
+    )
+
+
+@pytest.mark.parametrize(
+    ("current_parts", "folder_name"),
+    [(("Work",), "Image"), (("Reference",), "자료"), ((), "Work"), ((), "Reference")],
+)
+def test_menu_on_folder_creates_folders_inside_it(
+    browser: FolderBrowser,
+    project: Path,
+    fake_folder_ui: type[_FakeFolderDialog],
+    current_parts: tuple[str, ...],
+    folder_name: str,
+) -> None:
+    """폴더 위의 메뉴로 그 폴더 안에 만들고, 보던 화면에 머무는지 확인한다."""
+    current = project.joinpath(*current_parts)
+    target = current / folder_name
+    target.mkdir(parents=True, exist_ok=True)
+    browser._navigate_to(current)
+
+    _right_click_icon(browser, folder_name)
+
+    assert fake_folder_ui.parent_folders == [target]
+    assert (target / "시안1").is_dir()
+    assert (target / "시안2").is_dir()
+    assert not (current / "시안1").exists()
+    assert folder_name in _folders(browser)
+    assert "시안1" not in _folders(browser)
+    assert (
+        browser.findChild(_Toast).text()
+        == f"{folder_name} 안에 폴더 2개를 만들었습니다"
+    )
+
+
+def test_detail_menu_on_folder_creates_folders_inside_it(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """자세히 보기에서도 폴더 위의 메뉴로 그 폴더 안에 만드는지 확인한다."""
+    browser._navigate_to(project / "Work")
+    browser.set_view_mode(ViewMode.DETAILS)
+    tree = browser.findChild(QTreeWidget)
+    item = tree.findItems("Image", Qt.MatchFlag.MatchExactly, 0)[0]
+
+    browser._on_tree_context_menu(tree.visualItemRect(item).center())
+
+    assert (project / "Work" / "Image" / "시안1").is_dir()
+    assert not (project / "Work" / "시안1").exists()
+
+
+def test_menu_on_file_creates_folders_in_current_folder(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """파일 위의 메뉴로는 지금 위치에 만들고, 안내 문구도 그대로인지 확인한다."""
+    folder = project / "Reference"
+    folder.mkdir()
+    _save_image(folder / "사진.png")
+    browser._navigate_to(folder)
+
+    _right_click_icon(browser, "사진.png")
+
+    assert fake_folder_ui.parent_folders == [folder]
+    assert (folder / "시안1").is_dir()
+    assert browser.findChild(_Toast).text() == "폴더 2개를 만들었습니다"
+
+
+def test_cancel_on_folder_menu_creates_nothing(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """폴더 위의 메뉴에서 취소하면 아무것도 만들지 않는지 확인한다."""
+    fake_folder_ui.result = QDialog.DialogCode.Rejected
+    browser._navigate_to(project / "Work")
+
+    _right_click_icon(browser, "Image")
+
+    assert list((project / "Work" / "Image").iterdir()) == []
+
+
+def test_failure_on_folder_menu_warns(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """메뉴를 연 사이 폴더가 사라지면 경고창으로 알리는지 확인한다."""
+    target = project / "Work" / "Image"
+    browser._navigate_to(project / "Work")
+    target.rmdir()
+
+    with patch("ui.folder_browser.warn") as warn_mock:
+        browser._create_folders_from_dialog(target)
+
+    warn_mock.assert_called_once()
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("folder_name", ["Document", "Pub"])
+def test_no_add_folder_on_folders_outside_work_and_reference(
+    browser: FolderBrowser, project: Path, folder_name: str
+) -> None:
+    """프로젝트 맨 위의 다른 폴더에는 폴더 추가 메뉴가 없는지 확인한다."""
+    (project / folder_name).mkdir(exist_ok=True)
+    browser._navigate_to(project)
+
+    texts = [text for text, _handler in browser._menu_entries(None, folder_name)]
+
+    assert "폴더 추가하기" not in texts
 
 
 def test_file_menu_in_reference_offers_only_add_folder(
