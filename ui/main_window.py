@@ -5,7 +5,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QMainWindow, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QMainWindow,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.pptx_import import DroppedFiles, PptxImportSummary, classify_dropped_files
 from ui.folder_browser import FolderBrowser
@@ -14,6 +20,7 @@ from ui.photo_panel import PhotoPanel
 from ui.pptx_import_worker import PptxImportWorker
 from ui.project_selector import ProjectSelector
 from ui.toast import show_toast
+from ui.update_button import UpdateButton
 
 IMPORT_TITLE = "PPT 저장"
 PANEL_WIDTH = 260
@@ -54,6 +61,7 @@ class MainWindow(QMainWindow):
         self._skipped_messages: list[str] = []
 
         self._selector = ProjectSelector()
+        self._update_button = UpdateButton()
         browser = FolderBrowser()
         browser.set_project(self._selector.current_project())
         self._selector.project_changed.connect(browser.set_project)
@@ -74,9 +82,16 @@ class MainWindow(QMainWindow):
 
         central_widget = QWidget()
         layout = QVBoxLayout(central_widget)
-        layout.addWidget(self._selector)
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(self._selector, stretch=1)
+        top_layout.addWidget(self._update_button)
+        layout.addLayout(top_layout)
         layout.addWidget(splitter, stretch=1)
         self.setCentralWidget(central_widget)
+
+    def check_for_update(self) -> None:
+        """새 버전이 있는지 확인을 시작한다. 프로그램을 켤 때 한 번 호출한다."""
+        self._update_button.check_for_update()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         """밖에서 끌어온 이 컴퓨터의 파일만 놓을 수 있게 한다. 프로그램 안의 사진은 무시한다."""
@@ -93,7 +108,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, partial(self._handle_dropped_paths, paths))
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """진행 중인 PPTX 처리가 끝나기를 기다린 뒤 창을 닫는다."""
+        """진행 중인 PPTX 처리가 끝나기를 기다리고 업데이트 작업을 멈춘 뒤 창을 닫는다."""
+        self._update_button.stop()
         if self._import_worker is not None:
             self._import_worker.wait()
         super().closeEvent(event)

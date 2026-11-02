@@ -14,6 +14,7 @@ def main() -> int:
     install_main_thread_gc(app)
     window = MainWindow()
     window.show()
+    window.check_for_update()
     return app.exec()
 
 

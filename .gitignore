@@ -19,5 +19,8 @@ dist/
 outputs/*
 !outputs/.gitkeep
 
+# 업데이트 임시 폴더
+.update/
+
 # macOS
 .DS_Store
