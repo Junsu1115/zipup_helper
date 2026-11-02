@@ -163,6 +163,14 @@ def copy_files_to_drop_target(
     return summary
 
 
+def copy_files_to_folder(sources: Iterable[Path], folder: Path) -> PhotoCopySummary:
+    """놓은 파일을 종류와 상관없이 folder로 복사한다. 같은 이름은 덮어쓰지 않는다."""
+    summary = PhotoCopySummary()
+    for source in sources:
+        _copy_to_folder(source, folder, summary)
+    return summary
+
+
 def _move_to_trash(path: Path) -> bool:
     """파일을 휴지통으로 옮기고 성공 여부를 반환한다."""
     return QFile.moveToTrash(str(path))

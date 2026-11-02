@@ -30,7 +30,11 @@ class CopyConfirmDialog(QDialog):
     """파일 썸네일, 복사 질문, OK/Cancel 버튼으로 이루어진 확인창."""
 
     def __init__(
-        self, target_name: str, paths: list[Path], parent: QWidget | None = None
+        self,
+        target_name: str,
+        paths: list[Path],
+        parent: QWidget | None = None,
+        sorts_by_kind: bool = True,
     ) -> None:
         """파일을 격자로 배치하고 썸네일 가져오기를 시작한다."""
         super().__init__(parent)
@@ -44,7 +48,8 @@ class CopyConfirmDialog(QDialog):
             layout.addWidget(QLabel(f"외 {len(paths) - MAX_THUMBNAILS}개"))
 
         layout.addWidget(QLabel(f"'{target_name}' 폴더로 복사하시겠습니까?"))
-        layout.addWidget(QLabel(FOLDER_NOTE))
+        if sorts_by_kind:
+            layout.addWidget(QLabel(FOLDER_NOTE))
 
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok

@@ -217,11 +217,19 @@ class _AcceptingDialog:
     """화면에 뜨지 않고 정해진 응답을 반환하는 확인창."""
 
     created: list[tuple[str, list[Path]]] = []
+    sorts_by_kind: list[bool] = []
     result = QDialog.DialogCode.Accepted
 
-    def __init__(self, target_name: str, paths: list[Path], _parent: object) -> None:
+    def __init__(
+        self,
+        target_name: str,
+        paths: list[Path],
+        _parent: object,
+        sorts_by_kind: bool = True,
+    ) -> None:
         """받은 값을 기록한다."""
         _AcceptingDialog.created.append((target_name, paths))
+        _AcceptingDialog.sorts_by_kind.append(sorts_by_kind)
 
     def exec(self) -> QDialog.DialogCode:
         """정해진 응답을 반환한다."""
@@ -235,6 +243,7 @@ class _AcceptingDialog:
 def fake_dialog() -> Iterator[type[_AcceptingDialog]]:
     """확인창을 가짜로 바꾼다."""
     _AcceptingDialog.created = []
+    _AcceptingDialog.sorts_by_kind = []
     _AcceptingDialog.result = QDialog.DialogCode.Accepted
     with patch("ui.folder_browser.CopyConfirmDialog", _AcceptingDialog):
         yield _AcceptingDialog
@@ -527,13 +536,13 @@ def test_real_drag_on_work_icon_copies_by_kind(
     assert photo.exists()
 
 
-def test_real_drag_on_reference_shows_dialog_without_copying(
+def test_real_drag_on_reference_copies_by_kind(
     browser: FolderBrowser,
     project: Path,
     tmp_path: Path,
     fake_dialog: type[_AcceptingDialog],
 ) -> None:
-    """Reference에 놓으면 OK를 눌러도 확인창까지만 동작하는지 확인한다."""
+    """맨 위의 Reference에 놓으면 종류에 맞는 폴더로 복사되는지 확인한다."""
     photo = _save_image(tmp_path / "밖" / "photo.png")
 
     _send_real_drag(
@@ -542,19 +551,17 @@ def test_real_drag_on_reference_shows_dialog_without_copying(
 
     assert _wait_until(lambda: bool(fake_dialog.created))
     assert fake_dialog.created[0][0] == "Reference"
-    QTest.qWait(50)
-    assert browser._copy_worker is None
-    assert _names(project / "Reference") == set()
-    assert browser.findChild(_Toast) is None
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert (project / "Reference" / "Image" / "photo.png").exists()
 
 
-def test_real_drag_inside_reference_shows_dialog_without_copying(
+def test_real_drag_inside_reference_folder_copies_there(
     browser: FolderBrowser,
     project: Path,
     tmp_path: Path,
     fake_dialog: type[_AcceptingDialog],
 ) -> None:
-    """Reference 안의 빈 공간에 놓아도 확인창까지만 동작하는지 확인한다."""
+    """Reference 하위 폴더의 빈 공간에 놓으면 그 폴더로 복사되는지 확인한다."""
     folder = project / "Reference" / "Image"
     (folder / "시안").mkdir(parents=True)
     browser._navigate_to(folder)
@@ -563,8 +570,9 @@ def test_real_drag_inside_reference_shows_dialog_without_copying(
     _send_real_drag(browser.findChild(QListWidget), QPoint(780, 480), [photo])
 
     assert _wait_until(lambda: bool(fake_dialog.created))
-    QTest.qWait(50)
-    assert not (folder / "photo.png").exists()
+    assert fake_dialog.created[0][0] == "Image"
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert (folder / "photo.png").exists()
 
 
 def test_real_drag_on_pub_shows_warning(
@@ -687,8 +695,7 @@ def _project_folder(browser: FolderBrowser, *parts: str) -> Path:
     ("view", "target"),
     [
         (("Work",), "Work"),
-        (("Work", "Image"), "Work"),
-        (("Work", "Video", "시안"), "Work"),
+        (("Reference",), "Reference"),
     ],
 )
 def test_area_drop_inside_target_copies_by_kind(
@@ -698,7 +705,7 @@ def test_area_drop_inside_target_copies_by_kind(
     view: tuple[str, ...],
     target: str,
 ) -> None:
-    """Work, Reference 안의 빈 공간에 놓으면 종류에 맞는 폴더로 복사되는지 확인한다."""
+    """Work, Reference를 보면서 빈 공간에 놓으면 종류에 맞는 폴더로 복사되는지 확인한다."""
     folder = _project_folder(browser, *view)
     (folder / "내용").mkdir(parents=True)
     browser._navigate_to(folder)
@@ -717,21 +724,132 @@ def test_area_drop_inside_target_copies_by_kind(
     assert (project / target / "Video" / "movie.mp4").exists()
 
 
-def test_video_on_image_icon_inside_work_goes_to_video(
-    browser: FolderBrowser, tmp_path: Path, fake_dialog: type[_AcceptingDialog]
+@pytest.mark.parametrize(
+    "view",
+    [("Work", "Image"), ("Work", "Video", "시안"), ("Reference", "자료")],
+)
+def test_area_drop_in_subfolder_copies_into_viewed_folder(
+    browser: FolderBrowser,
+    tmp_path: Path,
+    fake_dialog: type[_AcceptingDialog],
+    view: tuple[str, ...],
 ) -> None:
-    """Work 안의 Image 아이콘에 동영상을 놓아도 Video로 들어가는지 확인한다."""
-    (_project_folder(browser, "Work", "Image")).mkdir()
-    browser._navigate_to(_project_folder(browser, "Work"))
+    """하위 폴더를 보면서 빈 공간에 놓으면 지금 폴더로 들어가고 이름이 뜨는지 확인한다."""
+    folder = _project_folder(browser, *view)
+    (folder / "내용").mkdir(parents=True)
+    browser._navigate_to(folder)
+    photo = _save_image(tmp_path / "밖" / "photo.png")
     video = _write_files(tmp_path / "밖", "movie.mp4")[0]
 
     browser.findChild(QListWidget).dropEvent(
-        _drag_event([video], position=_icon_center(browser, "Image"))
+        _drag_event([photo, video], position=QPoint(780, 480))
+    )
+
+    assert _wait_until(lambda: bool(fake_dialog.created))
+    assert fake_dialog.created[0][0] == view[-1]
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert (folder / "photo.png").exists()
+    assert (folder / "movie.mp4").exists()
+
+
+@pytest.mark.parametrize("area", ["Work", "Reference"])
+def test_drop_on_folder_icon_copies_into_that_folder(
+    browser: FolderBrowser,
+    tmp_path: Path,
+    fake_dialog: type[_AcceptingDialog],
+    area: str,
+) -> None:
+    """안쪽 폴더 아이콘에 놓으면 종류와 상관없이 그 폴더로 들어가고 이름이 뜨는지 확인한다."""
+    folder = _project_folder(browser, area, "시안")
+    folder.mkdir(parents=True)
+    browser._navigate_to(_project_folder(browser, area))
+    photo = _save_image(tmp_path / "밖" / "photo.png")
+    video = _write_files(tmp_path / "밖", "movie.mp4")[0]
+
+    browser.findChild(QListWidget).dropEvent(
+        _drag_event([photo, video], position=_icon_center(browser, "시안"))
+    )
+
+    assert _wait_until(lambda: bool(fake_dialog.created))
+    assert fake_dialog.created[0][0] == "시안"
+    assert fake_dialog.sorts_by_kind == [False]
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert _names(folder) == {"photo.png", "movie.mp4"}
+    assert not _project_folder(browser, area, "Image").exists()
+    assert not _project_folder(browser, area, "Video").exists()
+    assert "시안" in browser.findChild(_Toast).text()
+
+
+def test_same_name_elsewhere_does_not_block_folder_drop(
+    browser: FolderBrowser, tmp_path: Path, fake_dialog: type[_AcceptingDialog]
+) -> None:
+    """Work/Image에 같은 이름이 있어도 다른 폴더에는 들어가는지 확인한다."""
+    existing = _save_image(_project_folder(browser, "Work", "Image") / "photo.png")
+    folder = _project_folder(browser, "Work", "시안")
+    folder.mkdir(parents=True)
+    browser._navigate_to(_project_folder(browser, "Work"))
+    photo = _save_image(tmp_path / "밖" / "photo.png")
+
+    browser.findChild(QListWidget).dropEvent(
+        _drag_event([photo], position=_icon_center(browser, "시안"))
     )
 
     assert _wait_until(lambda: bool(fake_dialog.created))
     assert _wait_until(lambda: browser._copy_worker is None)
-    assert (_project_folder(browser, "Work", "Video", "movie.mp4")).exists()
+    assert (folder / "photo.png").exists()
+    assert existing.exists()
+
+
+def test_same_name_in_chosen_folder_is_not_overwritten(
+    browser: FolderBrowser, tmp_path: Path, fake_dialog: type[_AcceptingDialog]
+) -> None:
+    """고른 폴더에 같은 이름이 있으면 덮어쓰지 않는지 확인한다."""
+    folder = _project_folder(browser, "Work", "시안")
+    existing = _write_files(folder, "photo.png")[0]
+    before = existing.read_bytes()
+    browser._navigate_to(_project_folder(browser, "Work"))
+    photo = _save_image(tmp_path / "밖" / "photo.png")
+
+    browser.findChild(QListWidget).dropEvent(
+        _drag_event([photo], position=_icon_center(browser, "시안"))
+    )
+
+    assert _wait_until(lambda: bool(fake_dialog.created))
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert existing.read_bytes() == before
+
+
+def test_cancel_folder_drop_copies_nothing(
+    browser: FolderBrowser, tmp_path: Path, fake_dialog: type[_AcceptingDialog]
+) -> None:
+    """폴더에 놓고 Cancel을 누르면 복사하지 않는지 확인한다."""
+    fake_dialog.result = QDialog.DialogCode.Rejected
+    folder = _project_folder(browser, "Work", "시안")
+    folder.mkdir(parents=True)
+    browser._navigate_to(_project_folder(browser, "Work"))
+    photo = _save_image(tmp_path / "밖" / "photo.png")
+
+    browser.findChild(QListWidget).dropEvent(
+        _drag_event([photo], position=_icon_center(browser, "시안"))
+    )
+
+    assert _wait_until(lambda: bool(fake_dialog.created))
+    QTest.qWait(50)
+    assert browser._copy_worker is None
+    assert _names(folder) == set()
+
+
+def test_dialog_hides_sorting_note_for_chosen_folder(
+    app: QApplication, tmp_path: Path
+) -> None:
+    """고른 폴더에 넣을 때는 Image, Video 안내를 숨기는지 확인한다."""
+    path = _save_image(tmp_path / "a.png")
+
+    dialog = CopyConfirmDialog("시안", [path], sorts_by_kind=False)
+
+    assert "'시안' 폴더로 복사하시겠습니까?" in _labels(dialog)
+    assert FOLDER_NOTE not in _labels(dialog)
+    dialog.close()
 
 
 def test_drop_on_empty_target_folder_uses_browser_area(

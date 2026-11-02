@@ -45,6 +45,9 @@ class DropRules:
     # 프로그램 안의 항목을 이름의 폴더로 옮길 수 있으면 그 폴더 경로를 반환한다.
     move_target: Callable[[str, list[Path]], Path | None]
     on_move: Callable[[Path, list[Path]], None]
+    # 놓은 폴더 이름(없으면 None)으로 파일을 바로 넣을 폴더를 반환한다. 없으면 None을 반환한다.
+    folder_copy_target: Callable[[str | None], Path | None]
+    on_folder_copy: Callable[[Path, list[Path]], None]
 
 
 class FolderDropHandler:
@@ -132,11 +135,16 @@ class FolderDropHandler:
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
         paths = dragged_paths(event)
+        has_media = any(map(is_media_file, paths))
+        folder = self._folder_for_media(event)
+        copy_folder = self._rules.folder_copy_target(folder) if has_media else None
+        if copy_folder is not None:
+            self._rules.on_folder_copy(copy_folder, paths)
+            return
         area_target = self._rules.area_target()
-        if area_target is not None and any(map(is_media_file, paths)):
+        if area_target is not None and has_media:
             self._rules.on_drop(area_target, paths)
             return
-        folder = self._folder_for_media(event)
         if folder is None:
             self._rules.on_other_drop(paths)
             return

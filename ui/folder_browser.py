@@ -54,9 +54,9 @@ from core.folder_contents import (
 from core.photo_copy import (
     DROP_TARGET_FOLDERS,
     PUB_FOLDER,
-    WORK_FOLDER,
     PhotoCopySummary,
     copy_files_to_drop_target,
+    copy_files_to_folder,
     copy_folder_to_pub,
     copy_photos_to_pub,
     delete_from_pub,
@@ -96,7 +96,6 @@ DELETE_MENU_TEXT = "삭제(Pub 폴더에서만 삭제됩니다)"
 PHOTO_COPY_TITLE = "파일 복사"
 FILE_MOVE_TITLE = "파일 이동"
 # 놓았을 때 실제로 복사하는 폴더. Reference는 아직 확인창까지만 표시한다.
-COPY_ENABLED_TARGETS = (WORK_FOLDER,)
 INVALID_DROP_MESSAGE = "Work 폴더와 Reference 폴더에만 이동 가능합니다."
 PHOTO_DELETE_TITLE = "파일 삭제"
 # 항목이 폴더인지 표시하는 데이터 위치. 사진은 눌러도 들어가지 않는다.
@@ -433,6 +432,8 @@ class FolderBrowser(QWidget):
             area_target=self._drop_area_target,
             move_target=self._move_target_for,
             on_move=self._on_files_moved,
+            folder_copy_target=self._folder_copy_target,
+            on_folder_copy=self.handle_files_dropped_on_folder,
         )
         # 빈 폴더처럼 목록이 숨겨져 있어도 놓을 수 있게 화면 전체가 파일을 받는다.
         self.setAcceptDrops(True)
@@ -573,6 +574,23 @@ class FolderBrowser(QWidget):
             return name
         return None
 
+    def _folder_copy_target(self, name: str | None) -> Path | None:
+        """Work, Reference 안에서 파일을 바로 넣을 폴더를 반환한다.
+
+        폴더 위에 놓았으면 그 폴더, 하위 폴더의 빈 곳이면 지금 폴더다.
+        Work, Reference 맨 위의 빈 곳은 종류별로 나누므로 None을 반환한다.
+        """
+        target_name = self._drop_area_target()
+        if target_name is None:
+            return None
+        if name is not None:
+            return self._current / name
+        return None if self._current == self._project / target_name else self._current
+
+    def handle_files_dropped_on_folder(self, folder: Path, paths: list[Path]) -> None:
+        """폴더에 놓은 파일을 처리한다. 끌기가 끝난 뒤에 확인창이 뜨도록 미룬다."""
+        QTimer.singleShot(0, partial(self._confirm_folder_copy, folder, paths))
+
     def handle_files_dropped(self, target_name: str, paths: list[Path]) -> None:
         """놓은 파일을 처리한다. 끌기가 끝난 뒤에 확인창이 뜨도록 미룬다."""
         QTimer.singleShot(0, partial(self._confirm_file_copy, target_name, paths))
@@ -584,13 +602,34 @@ class FolderBrowser(QWidget):
         )
 
     def _confirm_file_copy(self, target_name: str, paths: list[Path]) -> None:
-        """썸네일과 함께 복사 여부를 묻고, OK를 누르면 사진과 동영상만 복사한다."""
+        """복사 여부를 묻고, OK를 누르면 사진은 Image로, 동영상은 Video로 복사한다."""
+        media_paths = self._ask_media_copy(target_name, paths, sorts_by_kind=True)
+        if media_paths:
+            self._start_copy(
+                partial(
+                    copy_files_to_drop_target, media_paths, self._project, target_name
+                ),
+                target_name,
+            )
+
+    def _confirm_folder_copy(self, folder: Path, paths: list[Path]) -> None:
+        """복사 여부를 묻고, OK를 누르면 사진과 동영상을 folder에 바로 복사한다."""
+        media_paths = self._ask_media_copy(folder.name, paths, sorts_by_kind=False)
+        if media_paths:
+            self._start_copy(
+                partial(copy_files_to_folder, media_paths, folder), folder.name
+            )
+
+    def _ask_media_copy(
+        self, folder_name: str, paths: list[Path], sorts_by_kind: bool
+    ) -> list[Path]:
+        """썸네일과 함께 복사 여부를 묻고, 복사할 사진과 동영상을 반환한다. 취소하면 비어 있다."""
         if self._copy_worker is not None:
             show_toast(self, "복사 중입니다")
-            return
+            return []
         media_paths = [path for path in paths if is_media_file(path)]
         if self._project is None or not media_paths:
-            return
+            return []
         skipped = [
             f"'{path.name}': 사진이나 동영상이 아니어서 건너뛰었습니다."
             for path in paths
@@ -598,16 +637,10 @@ class FolderBrowser(QWidget):
         ]
         if skipped:
             warn(self, PHOTO_COPY_TITLE, "\n".join(skipped))
-        dialog = CopyConfirmDialog(target_name, media_paths, self)
+        dialog = CopyConfirmDialog(folder_name, media_paths, self, sorts_by_kind)
         accepted = dialog.exec() == QDialog.DialogCode.Accepted
         dialog.deleteLater()
-        if accepted and target_name in COPY_ENABLED_TARGETS:
-            self._start_copy(
-                partial(
-                    copy_files_to_drop_target, media_paths, self._project, target_name
-                ),
-                target_name,
-            )
+        return media_paths if accepted else []
 
     def set_project(self, project: Path | None) -> None:
         """표시할 프로젝트를 바꾸고, 그 프로젝트의 맨 위를 보여준다."""
