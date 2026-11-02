@@ -24,7 +24,3 @@ outputs/*
 
 # macOS
 .DS_Store
-
-# 저장소에 올리지 않는 개발 파일
-CLAUDE.md
-tests/
