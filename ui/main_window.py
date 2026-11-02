@@ -60,6 +60,8 @@ class MainWindow(QMainWindow):
 
         photo_panel = PhotoPanel()
         browser.images_selected.connect(photo_panel.set_images)
+
+        browser.other_files_dropped.connect(self._on_other_files_dropped)
         browser.image_activated.connect(photo_panel.open_with_default_app)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -85,6 +87,10 @@ class MainWindow(QMainWindow):
         """놓은 파일을 받는다. 확인창이 Finder를 붙잡지 않도록 처리는 드롭이 끝난 뒤로 미룬다."""
         event.acceptProposedAction()
         QTimer.singleShot(0, partial(self._handle_dropped_paths, _local_paths(event)))
+
+    def _on_other_files_dropped(self, paths: list[Path]) -> None:
+        """폴더 화면에 놓였지만 복사 대상이 아닌 파일을 PPT 처리로 넘긴다."""
+        QTimer.singleShot(0, partial(self._handle_dropped_paths, paths))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """진행 중인 PPTX 처리가 끝나기를 기다린 뒤 창을 닫는다."""

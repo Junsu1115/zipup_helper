@@ -4,6 +4,7 @@ import re
 import stat
 import unicodedata
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path.home() / "Project"
@@ -78,6 +79,44 @@ def _validate_folder_name(name: str) -> None:
         raise FolderNameError("폴더 이름은 '.'으로 끝날 수 없습니다.")
     if name.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
         raise FolderNameError(f"'{name}'은 Windows에서 예약된 이름이라 쓸 수 없습니다.")
+
+
+def clean_folder_name(name: str) -> str:
+    """앞뒤 공백을 정리한 이름을 반환한다. 쓸 수 없으면 FolderNameError를 발생시킨다."""
+    cleaned_name = name.strip()
+    _validate_folder_name(cleaned_name)
+    return cleaned_name
+
+
+def is_same_folder_name(first: str, second: str) -> bool:
+    """대소문자와 한글 표기 방식을 무시하고 같은 이름인지 반환한다."""
+    normalize = lambda name: unicodedata.normalize("NFC", name).casefold()  # noqa: E731
+    return normalize(first) == normalize(second)
+
+
+@dataclass
+class FolderCreationSummary:
+    """여러 폴더를 만든 결과."""
+
+    created_count: int = 0
+    failures: list[str] = field(default_factory=list)
+
+
+def create_folders(names: Iterable[str], parent: Path) -> FolderCreationSummary:
+    """parent 안에 폴더들을 만든다. 하나가 실패해도 나머지는 계속 만들고, 만든 폴더는 그대로 둔다."""
+    summary = FolderCreationSummary()
+    for name in names:
+        try:
+            (parent / clean_folder_name(name)).mkdir()
+        except FolderNameError as error:
+            summary.failures.append(str(error))
+        except FileExistsError:
+            summary.failures.append(f"'{name}': 이 위치에 이미 있습니다.")
+        except OSError as error:
+            summary.failures.append(f"'{name}': {error}")
+        else:
+            summary.created_count += 1
+    return summary
 
 
 def create_project_folder(

@@ -13,6 +13,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QListWidget,
     QPushButton,
     QTreeWidget,
@@ -286,14 +287,13 @@ def test_add_subfolders_button_only_enabled_at_project_top(
     assert button.text() == "이 위치에 하위 폴더 추가"
     assert button.isEnabled()
 
-    _click_folder(browser, "Work")
+    _click_folder(browser, "Document")
     assert not button.isEnabled()
 
     with patch("ui.folder_browser.confirm") as confirm_mock:
         button.click()
     confirm_mock.assert_not_called()
-    assert _folders(browser) == ["Image"]
-    assert not (project / "Work" / "Document").exists()
+    assert list((project / "Document").iterdir()) == []
 
     _back_button(browser).click()
     assert button.isEnabled()
@@ -392,8 +392,8 @@ def test_button_is_reenabled_when_nested_subfolder_removed_outside(
 def test_button_stays_disabled_in_subfolder_when_subfolders_missing(
     browser: FolderBrowser,
 ) -> None:
-    """빠진 폴더가 있어도 하위 폴더 안에서는 꺼져 있는지 확인한다."""
-    _click_folder(browser, "Work")
+    """빠진 폴더가 있어도 Work, Reference 밖의 하위 폴더에서는 꺼져 있는지 확인한다."""
+    _click_folder(browser, "Document")
 
     assert not browser._add_subfolders_button.isEnabled()
 
@@ -964,6 +964,239 @@ def test_long_path_does_not_widen_browser(
 
     assert browser.minimumSizeHint().width() == before
     assert _path_text(browser) == "아주긴이름" * 20
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("Work",),
+        ("Work", "Image"),
+        ("Reference",),
+        ("Document",),
+        ("Pub", "Image"),
+    ],
+)
+def test_add_button_is_disabled_in_all_subfolders(
+    browser: FolderBrowser, project: Path, parts: tuple[str, ...]
+) -> None:
+    """이 위치에 하위 폴더 추가 버튼은 어느 하위 폴더에서도 꺼져 있는지 확인한다."""
+    folder = project.joinpath(*parts)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    browser._navigate_to(folder)
+
+    assert not browser._add_subfolders_button.isEnabled()
+
+
+class _FakeMenu:
+    """화면에 뜨지 않고 정해진 문구의 항목을 고르는 메뉴."""
+
+    shown_texts: list[str] = []
+    chosen_text: str | None = "폴더 추가하기"
+
+    def __init__(self, _parent: object) -> None:
+        """기록을 준비한다."""
+
+    def addAction(self, text: str) -> str:
+        """항목 문구를 기록하고, 문구를 항목으로 반환한다."""
+        _FakeMenu.shown_texts.append(text)
+        return text
+
+    def exec(self, _position: object) -> str | None:
+        """정해진 항목을 고른 것으로 처리한다."""
+        return _FakeMenu.chosen_text
+
+    def deleteLater(self) -> None:
+        """지울 것이 없다."""
+
+
+class _FakeFolderDialog:
+    """화면에 뜨지 않고 정해진 이름과 응답을 반환하는 폴더 만들기 창."""
+
+    names: list[str] = []
+    result = QDialog.DialogCode.Accepted
+    parent_folders: list[Path] = []
+
+    def __init__(self, parent_folder: Path, _parent: object) -> None:
+        """받은 위치를 기록한다."""
+        _FakeFolderDialog.parent_folders.append(parent_folder)
+
+    def exec(self) -> QDialog.DialogCode:
+        """정해진 응답을 반환한다."""
+        return _FakeFolderDialog.result
+
+    def folder_names(self) -> list[str]:
+        """정해진 이름을 반환한다."""
+        return _FakeFolderDialog.names
+
+    def deleteLater(self) -> None:
+        """지울 것이 없다."""
+
+
+@pytest.fixture
+def fake_folder_ui() -> Iterator[type[_FakeFolderDialog]]:
+    """메뉴와 폴더 만들기 창을 가짜로 바꾼다."""
+    _FakeMenu.shown_texts = []
+    _FakeMenu.chosen_text = "폴더 추가하기"
+    _FakeFolderDialog.names = ["시안1", "시안2"]
+    _FakeFolderDialog.result = QDialog.DialogCode.Accepted
+    _FakeFolderDialog.parent_folders = []
+    with (
+        patch("ui.folder_browser.QMenu", _FakeMenu),
+        patch("ui.folder_browser.MultiFolderDialog", _FakeFolderDialog),
+    ):
+        yield _FakeFolderDialog
+
+
+@pytest.mark.parametrize("parts", [("Work",), ("Work", "Image"), ("Reference",)])
+def test_menu_on_empty_space_creates_folders_here(
+    browser: FolderBrowser,
+    project: Path,
+    fake_folder_ui: type[_FakeFolderDialog],
+    parts: tuple[str, ...],
+) -> None:
+    """Work, Reference 안의 빈 공간 메뉴로 지금 위치에 폴더가 생기는지 확인한다."""
+    folder = project.joinpath(*parts)
+    (folder / "기존").mkdir(parents=True)
+    browser._navigate_to(folder)
+
+    browser._on_list_context_menu(QPoint(780, 480))
+
+    assert _FakeMenu.shown_texts == ["폴더 추가하기"]
+    assert fake_folder_ui.parent_folders == [folder]
+    assert (folder / "시안1").is_dir()
+    assert (folder / "시안2").is_dir()
+    assert {"시안1", "시안2"} <= set(_folders(browser))
+    assert browser.findChild(_Toast).text() == "폴더 2개를 만들었습니다"
+
+
+def test_menu_on_folder_creates_here_not_inside_it(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """폴더 위에서 눌러도 그 안이 아니라 지금 위치에 만드는지 확인한다."""
+    folder = project / "Work"
+    browser._navigate_to(folder)
+
+    browser._on_list_context_menu(browser.findChild(QListWidget).visualItemRect(
+        browser.findChild(QListWidget).findItems("Image", Qt.MatchFlag.MatchExactly)[0]
+    ).center())
+
+    assert fake_folder_ui.parent_folders == [folder]
+    assert (folder / "시안1").is_dir()
+    assert not (folder / "Image" / "시안1").exists()
+
+
+def test_menu_on_empty_folder_screen_creates_folders(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """목록이 숨겨진 빈 폴더 화면에서도 메뉴로 폴더를 만들 수 있는지 확인한다."""
+    folder = project / "Work" / "Image"
+    browser._navigate_to(folder)
+    assert browser.findChild(QListWidget).isHidden()
+
+    browser._on_empty_label_context_menu(QPoint(10, 10))
+
+    assert (folder / "시안1").is_dir()
+
+
+def test_menu_in_detail_view_creates_folders(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """자세히 보기의 메뉴로도 폴더를 만들 수 있는지 확인한다."""
+    folder = project / "Work"
+    browser._navigate_to(folder)
+    browser.set_view_mode(ViewMode.DETAILS)
+
+    browser._on_tree_context_menu(QPoint(780, 480))
+
+    assert (folder / "시안1").is_dir()
+
+
+def test_file_menu_in_reference_offers_only_add_folder(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """Reference의 파일에는 Pub 메뉴 없이 폴더 추가하기만 나오는지 확인한다."""
+    folder = project / "Reference"
+    folder.mkdir()
+    _save_image(folder / "사진.png")
+    browser._navigate_to(folder)
+
+    browser._on_list_context_menu(browser.findChild(QListWidget).visualItemRect(
+        _item(browser, "사진.png")
+    ).center())
+
+    assert _FakeMenu.shown_texts == ["폴더 추가하기"]
+
+
+@pytest.mark.parametrize("parts", [(), ("Document",), ("Pub",)])
+def test_no_add_folder_outside_work_and_reference(
+    browser: FolderBrowser,
+    project: Path,
+    fake_folder_ui: type[_FakeFolderDialog],
+    parts: tuple[str, ...],
+) -> None:
+    """프로젝트 맨 위와 Document, Pub의 빈 공간에는 메뉴가 없는지 확인한다."""
+    folder = project.joinpath(*parts)
+    folder.mkdir(exist_ok=True)
+    browser._navigate_to(folder)
+
+    browser._on_list_context_menu(QPoint(780, 480))
+
+    assert _FakeMenu.shown_texts == []
+    assert fake_folder_ui.parent_folders == []
+
+
+def test_cancel_in_folder_dialog_creates_nothing(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """Cancel을 누르면 아무것도 만들지 않는지 확인한다."""
+    folder = project / "Work"
+    browser._navigate_to(folder)
+    fake_folder_ui.result = QDialog.DialogCode.Rejected
+
+    browser._on_list_context_menu(QPoint(780, 480))
+
+    assert not (folder / "시안1").exists()
+    assert browser.findChild(_Toast) is None
+
+
+def test_closing_menu_without_choice_does_nothing(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """메뉴를 고르지 않고 닫으면 창이 뜨지 않는지 확인한다."""
+    browser._navigate_to(project / "Work")
+    _FakeMenu.chosen_text = None
+
+    browser._on_list_context_menu(QPoint(780, 480))
+
+    assert fake_folder_ui.parent_folders == []
+
+
+def test_folder_creation_failure_warns_and_keeps_others(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """창이 열린 사이 생긴 같은 이름은 실패로 알리고, 나머지는 만드는지 확인한다."""
+    folder = project / "Work"
+    browser._navigate_to(folder)
+    (folder / "시안1").mkdir()
+
+    with patch("ui.folder_browser.warn") as warning:
+        browser._on_list_context_menu(QPoint(780, 480))
+
+    warning.assert_called_once()
+    assert "시안1" in warning.call_args.args[2]
+    assert (folder / "시안2").is_dir()
+    assert browser.findChild(_Toast).text() == "폴더 1개를 만들었습니다"
+
+
+def test_top_button_fills_missing_subfolders_without_dialog(
+    browser: FolderBrowser, project: Path, fake_folder_ui: type[_FakeFolderDialog]
+) -> None:
+    """프로젝트 맨 위의 버튼은 창 없이 빠진 폴더를 채우는지 확인한다."""
+    _click_add_subfolders(browser, answer=True)
+
+    assert fake_folder_ui.parent_folders == []
+    assert (project / "Pub" / "Video").is_dir()
 
 
 def test_watcher_groups_repeated_changes(app: QApplication) -> None:

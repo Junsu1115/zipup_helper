@@ -24,6 +24,17 @@ def _center_on_canvas(image: QImage, size: QSize) -> QImage:
     return canvas
 
 
+def fit_thumbnail(image: QImage, size: QSize = THUMBNAIL_SIZE) -> QImage:
+    """이미 읽은 이미지를 size 안에 맞게 줄여 칸 가운데에 놓는다."""
+    if image.width() > size.width() or image.height() > size.height():
+        image = image.scaled(
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    return _center_on_canvas(image, size)
+
+
 def _read_scaled(path: Path, size: QSize) -> tuple[QImage, QSize]:
     """사진을 size 안에 맞게 줄여 읽고, 회전을 반영한 원본 크기와 함께 반환한다."""
     reader = QImageReader(str(path))

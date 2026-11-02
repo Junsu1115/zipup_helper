@@ -48,10 +48,21 @@ def is_image_file(path: Path) -> bool:
     return path.suffix.lower() in IMAGE_SUFFIXES
 
 
+def is_media_file(path: Path) -> bool:
+    """사진이나 동영상 형식의 파일인지 반환한다."""
+    return path.suffix.lower() in MEDIA_SUFFIXES and path.is_file()
+
+
 def _file_kind(path: Path) -> str:
     """파일의 종류 문구를 반환한다."""
-    label = "동영상" if path.suffix.lower() in VIDEO_SUFFIXES else "이미지"
-    return f"{path.suffix[1:].upper()} {label}"
+    suffix = path.suffix.lower()
+    if suffix in VIDEO_SUFFIXES:
+        label = "동영상"
+    elif suffix in IMAGE_SUFFIXES:
+        label = "이미지"
+    else:
+        label = "파일"
+    return f"{path.suffix[1:].upper()} {label}".strip()
 
 
 def read_entry_details(path: Path, is_folder: bool) -> EntryDetails:
@@ -93,6 +104,16 @@ def format_modified(modified: datetime | None) -> str:
         f"{modified.year}. {modified.month}. {modified.day}. "
         f"{period} {hour}:{modified.minute:02}"
     )
+
+
+def list_all_files(folder: Path) -> list[str]:
+    """folder 바로 아래의 모든 파일 이름을 정렬해 반환한다. 숨김 파일은 제외한다."""
+    names = [
+        entry.name
+        for entry in folder.iterdir()
+        if entry.is_file() and not is_hidden(entry)
+    ]
+    return sorted(names, key=_sort_key)
 
 
 def list_media_files(folder: Path) -> list[str]:

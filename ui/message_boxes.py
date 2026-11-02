@@ -45,6 +45,17 @@ def confirm(parent: QWidget, title: str, text: str) -> bool:
     return box.clickedButton() == box.button(QMessageBox.StandardButton.Yes)
 
 
+def confirm_ok_cancel(parent: QWidget, title: str, text: str) -> bool:
+    """OK/Cancel로 묻고, OK를 눌렀는지 반환한다."""
+    box = _CenteredMessageBox(parent, title, text)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setStandardButtons(
+        QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+    )
+    box.exec()
+    return box.clickedButton() == box.button(QMessageBox.StandardButton.Ok)
+
+
 def warn(parent: QWidget, title: str, text: str) -> None:
     """경고창을 띄우고, OK를 눌러 닫을 때까지 기다린다."""
     box = _CenteredMessageBox(parent, title, text)

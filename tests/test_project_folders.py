@@ -12,6 +12,7 @@ from core.project_folders import (
     SUBFOLDER_TREE,
     FolderNameError,
     add_missing_subfolders,
+    create_folders,
     create_project_folder,
     has_missing_subfolders,
     is_hidden,
@@ -195,6 +196,28 @@ def test_create_keeps_partial_folders_when_subfolder_fails(
     created = {entry.name for entry in (tmp_path / "프로젝트").iterdir()}
     assert created == {"Document", "Reference", "Work"}
     assert list((tmp_path / "프로젝트" / "Work").iterdir()) == []
+
+
+def test_create_folders_makes_all_and_counts(tmp_path: Path) -> None:
+    """이름 목록의 폴더를 모두 만들고 개수를 알려 주는지 확인한다."""
+    summary = create_folders(["시안1", "  시안2  "], tmp_path)
+
+    assert summary.created_count == 2
+    assert summary.failures == []
+    assert {entry.name for entry in tmp_path.iterdir()} == {"시안1", "시안2"}
+
+
+def test_create_folders_continues_after_failures(tmp_path: Path) -> None:
+    """이미 있거나 잘못된 이름은 알리고, 나머지는 계속 만드는지 확인한다."""
+    (tmp_path / "기존").mkdir()
+    (tmp_path / "기존" / "내용").mkdir()
+
+    summary = create_folders(["기존", "a/b", "새폴더"], tmp_path)
+
+    assert summary.created_count == 1
+    assert len(summary.failures) == 2
+    assert (tmp_path / "새폴더").is_dir()
+    assert (tmp_path / "기존" / "내용").is_dir()
 
 
 def test_has_missing_reflects_structure(tmp_path: Path) -> None:

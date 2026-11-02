@@ -13,16 +13,24 @@ import pytest
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QListWidget, QTreeWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QListWidget,
+    QMessageBox,
+    QTreeWidget,
+    QWidget,
+)
 
 from core.photo_copy import (
     _move_to_trash,
+    copy_folder_to_pub,
     copy_photos_to_pub,
     delete_from_pub,
     is_inside_pub,
     pub_destination,
 )
 from ui.folder_browser import (
+    ADD_FOLDER_MENU_TEXT,
     DELETE_MENU_TEXT,
     PUB_MENU_TEXT,
     FolderBrowser,
@@ -30,6 +38,7 @@ from ui.folder_browser import (
 )
 from ui.gc_guard import install_main_thread_gc
 from ui.main_window import MainWindow
+from ui.message_boxes import confirm_ok_cancel
 from ui.photo_panel import PhotoPanel
 from ui.project_selector import ProjectSelector
 from ui.toast import _Toast
@@ -215,6 +224,100 @@ def test_copy_reports_failure_when_pub_is_a_file(tmp_path: Path) -> None:
     assert (tmp_path / "Pub").read_text() == "파일"
 
 
+def test_copy_folder_includes_nested_contents_and_keeps_original(
+    tmp_path: Path,
+) -> None:
+    """폴더를 하위 폴더와 다른 형식의 파일까지 같은 위치로 복사하는지 확인한다."""
+    folder = tmp_path / "Work" / "시안1"
+    _write_files(folder, "a.png", "메모.txt")
+    _write_files(folder / "내부", "b.mp4")
+
+    summary = copy_folder_to_pub(folder, tmp_path)
+
+    target = tmp_path / "Pub" / "시안1"
+    assert summary.copied_count == 3
+    assert _names(target) == {"a.png", "메모.txt", "내부"}
+    assert _names(target / "내부") == {"b.mp4"}
+    assert (folder / "내부" / "b.mp4").exists()
+
+
+def test_copy_nested_folder_goes_to_same_location(tmp_path: Path) -> None:
+    """Work/Image/시안1은 Pub/Image/시안1로 복사되는지 확인한다."""
+    folder = tmp_path / "Work" / "Image" / "시안1"
+    _write_files(folder, "a.png")
+
+    copy_folder_to_pub(folder, tmp_path)
+
+    assert (tmp_path / "Pub" / "Image" / "시안1" / "a.png").exists()
+
+
+def test_copy_folder_merges_with_existing_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    """Pub에 같은 폴더가 있으면 합치고, 같은 이름은 덮어쓰지 않는지 확인한다."""
+    folder = tmp_path / "Work" / "Image"
+    _write_files(folder, "a.png", "b.png")
+    existing = _write_files(tmp_path / "Pub" / "Image", "a.png", "기존.png")[0]
+    existing.write_text("기존")
+
+    summary = copy_folder_to_pub(folder, tmp_path)
+
+    assert summary.copied_count == 1
+    assert summary.existing_count == 1
+    assert existing.read_text() == "기존"
+    assert _names(tmp_path / "Pub" / "Image") == {"a.png", "b.png", "기존.png"}
+
+
+def test_copy_folder_excludes_hidden_entries(tmp_path: Path) -> None:
+    """숨김 파일과 숨김 폴더는 복사하지 않는지 확인한다."""
+    folder = tmp_path / "Work" / "시안1"
+    _write_files(folder, "a.png", ".DS_Store")
+    _write_files(folder / ".숨김폴더", "b.png")
+
+    copy_folder_to_pub(folder, tmp_path)
+
+    assert _names(tmp_path / "Pub" / "시안1") == {"a.png"}
+
+
+def test_copy_empty_folder_creates_folder(tmp_path: Path) -> None:
+    """빈 폴더도 만들어지고, 그 사실을 결과로 알 수 있는지 확인한다."""
+    folder = tmp_path / "Work" / "빈폴더"
+    folder.mkdir(parents=True)
+
+    summary = copy_folder_to_pub(folder, tmp_path)
+
+    assert summary.folder_created
+    assert summary.copied_count == 0
+    assert (tmp_path / "Pub" / "빈폴더").is_dir()
+
+
+def test_copy_folder_reports_when_same_name_file_blocks(tmp_path: Path) -> None:
+    """같은 이름의 파일이 있어 폴더를 못 만들면 알리고, 파일을 건드리지 않는지 확인한다."""
+    folder = tmp_path / "Work" / "시안1"
+    _write_files(folder, "a.png")
+    blocker = tmp_path / "Pub" / "시안1"
+    blocker.parent.mkdir()
+    blocker.write_text("파일")
+
+    summary = copy_folder_to_pub(folder, tmp_path)
+
+    assert summary.copied_count == 0
+    assert len(summary.failures) == 1
+    assert not summary.folder_created
+    assert blocker.read_text() == "파일"
+
+
+def test_copy_folder_refuses_outside_work(tmp_path: Path) -> None:
+    """Work 밖의 폴더는 복사하지 않는지 확인한다."""
+    folder = tmp_path / "Reference" / "자료"
+    _write_files(folder, "a.png")
+
+    summary = copy_folder_to_pub(folder, tmp_path)
+
+    assert len(summary.failures) == 1
+    assert not (tmp_path / "Pub").exists()
+
+
 def test_delete_moves_only_pub_files_to_trash(
     tmp_path: Path, fake_trash: MagicMock
 ) -> None:
@@ -336,11 +439,19 @@ def project(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def pub_confirm() -> Iterator[MagicMock]:
+    """Pub 복사 확인창을 가짜로 바꾼다. 기본 응답은 OK이다."""
+    with patch("ui.folder_browser.confirm_ok_cancel", return_value=True) as confirm:
+        yield confirm
+
+
+@pytest.fixture
 def browser(
     app: QApplication,
     project: Path,
     modal_watchdog: None,
     fake_trash: MagicMock,
+    pub_confirm: MagicMock,
 ) -> Iterator[FolderBrowser]:
     """Work/Image를 보고 있는 화면을 제공한다. 실제 휴지통은 쓰지 않는다."""
     widget = FolderBrowser()
@@ -457,7 +568,7 @@ def test_menu_in_work_image_copies_all_selected_to_pub_image(
 
     shown = _choose_menu_action(browser, "a.png")
 
-    assert shown == [PUB_MENU_TEXT]
+    assert shown == [PUB_MENU_TEXT, ADD_FOLDER_MENU_TEXT]
     assert _wait_until(lambda: browser._copy_worker is None)
     assert _names(project / "Pub" / "Image") == {"a.png", "b.png"}
     assert (project / "Work" / "Image" / "a.png").exists()
@@ -476,9 +587,93 @@ def test_video_is_listed_and_copied_to_pub_video(
 
     shown = _choose_menu_action(browser, "movie.mp4")
 
-    assert shown == [PUB_MENU_TEXT]
+    assert shown == [PUB_MENU_TEXT, ADD_FOLDER_MENU_TEXT]
     assert _wait_until(lambda: browser._copy_worker is None)
     assert _names(project / "Pub" / "Video") == {"movie.mp4"}
+
+
+def _make_work_folder(project: Path) -> Path:
+    """사진이 든 Work/Image/시안1 폴더를 만들어 반환한다."""
+    folder = project / "Work" / "Image" / "시안1"
+    _write_files(folder, "x.png", "y.mp4")
+    return folder
+
+
+def test_file_menu_asks_before_copying(
+    browser: FolderBrowser, project: Path, pub_confirm: MagicMock
+) -> None:
+    """파일 메뉴를 누르면 먼저 묻고, Cancel이면 복사하지 않는지 확인한다."""
+    pub_confirm.return_value = False
+    _click(browser, "a.png")
+
+    _choose_menu_action(browser, "a.png")
+    QTest.qWait(20)
+
+    pub_confirm.assert_called_once()
+    assert pub_confirm.call_args.args[2] == "Pub 폴더로 복사하시겠습니까?"
+    assert browser._copy_worker is None
+    assert not (project / "Pub").exists()
+    assert browser.findChild(_Toast) is None
+
+
+def test_folder_menu_asks_before_copying(
+    browser: FolderBrowser, project: Path, pub_confirm: MagicMock
+) -> None:
+    """폴더 메뉴도 먼저 묻고, Cancel이면 복사하지 않는지 확인한다."""
+    pub_confirm.return_value = False
+    _make_work_folder(project)
+    browser._refresh()
+
+    _choose_menu_action(browser, "시안1")
+    QTest.qWait(20)
+
+    pub_confirm.assert_called_once()
+    assert not (project / "Pub").exists()
+
+
+def test_busy_copy_does_not_ask(
+    browser: FolderBrowser, project: Path, pub_confirm: MagicMock
+) -> None:
+    """복사 중이면 묻지 않고 알림만 띄우는지 확인한다."""
+    browser._copy_worker = object()
+
+    browser._start_photo_copy()
+    browser._start_folder_copy(project / "Work" / "Image")
+
+    pub_confirm.assert_not_called()
+    assert browser.findChild(_Toast).text() == "복사 중입니다"
+    browser._copy_worker = None
+
+
+@pytest.mark.parametrize(
+    ("button", "expected"),
+    [
+        (QMessageBox.StandardButton.Ok, True),
+        (QMessageBox.StandardButton.Cancel, False),
+    ],
+)
+def test_ok_cancel_dialog_returns_answer_and_is_centered(
+    app: QApplication, button: QMessageBox.StandardButton, expected: bool
+) -> None:
+    """실제 확인창의 버튼, 문구, 위치를 확인한다."""
+    window = QWidget()
+    window.setGeometry(100, 100, 960, 640)
+    window.show()
+    seen: dict[str, object] = {}
+
+    def check_and_click() -> None:
+        """창 내용을 기록하고 버튼을 누른다."""
+        box = QApplication.activeModalWidget()
+        seen["text"] = box.text()
+        delta = box.frameGeometry().center() - window.frameGeometry().center()
+        seen["centered"] = abs(delta.x()) <= 1 and abs(delta.y()) <= 1
+        box.button(button).click()
+
+    QTimer.singleShot(0, check_and_click)
+
+    assert confirm_ok_cancel(window, "파일 복사", "Pub 폴더로 복사하시겠습니까?") is expected
+    assert seen == {"text": "Pub 폴더로 복사하시겠습니까?", "centered": True}
+    window.close()
 
 
 def test_menu_on_unselected_image_selects_only_it(
@@ -546,7 +741,7 @@ def test_copy_failure_shows_warning(browser: FolderBrowser, project: Path) -> No
 
 @pytest.mark.parametrize(
     "parts",
-    [(), ("Reference",), ("Document", "PPT_Break", "media")],
+    [(), ("기타",), ("Document", "PPT_Break", "media")],
 )
 def test_no_menu_outside_work_and_pub(
     browser: FolderBrowser, project: Path, parts: tuple[str, ...]
@@ -562,18 +757,110 @@ def test_no_menu_outside_work_and_pub(
     menu_class.assert_not_called()
 
 
-def test_no_menu_on_folder_or_empty_space(
+def test_no_menu_in_pub_on_folder_or_empty_space(
     browser: FolderBrowser, project: Path
 ) -> None:
-    """폴더와 빈 공간에서는 메뉴가 뜨지 않는지 확인한다."""
-    (project / "Work" / "Image" / "시안").mkdir()
-    browser._refresh()
+    """Pub 안의 폴더와 빈 공간에서는 메뉴가 뜨지 않는지 확인한다."""
+    folder = project / "Pub"
+    (folder / "시안").mkdir(parents=True)
+    browser._navigate_to(folder)
 
     with patch("ui.folder_browser.QMenu") as menu_class:
         browser._on_list_context_menu(_icon_center(browser, "시안"))
         browser._on_list_context_menu(QPoint(780, 480))
 
     menu_class.assert_not_called()
+
+
+def test_folder_menu_in_work_copies_whole_folder(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """Work 안의 폴더 메뉴로 폴더 전체가 복사되고, 이동하지 않는지 확인한다."""
+    folder = _make_work_folder(project)
+    browser._refresh()
+
+    shown = _choose_menu_action(browser, "시안1")
+
+    assert shown == [PUB_MENU_TEXT, ADD_FOLDER_MENU_TEXT]
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert _names(project / "Pub" / "Image" / "시안1") == {"x.png", "y.mp4"}
+    assert folder.is_dir()
+    assert browser._current == project / "Work" / "Image"
+    assert browser.findChild(_Toast).text() == "파일 2개를 Pub 폴더로 복사했습니다"
+
+
+def test_folder_menu_keeps_file_selection_and_copies_only_folder(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """파일을 선택해 둔 채 폴더 메뉴를 쓰면 그 폴더만 복사하는지 확인한다."""
+    _make_work_folder(project)
+    browser._refresh()
+    _click(browser, "a.png")
+
+    _choose_menu_action(browser, "시안1")
+
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert _selected_names(browser) == ["a.png"]
+    assert _names(project / "Pub" / "Image") == {"시안1"}
+
+
+def test_empty_folder_copy_shows_folder_message(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """빈 폴더를 복사하면 폴더 복사 알림이 뜨는지 확인한다."""
+    (project / "Work" / "Image" / "빈폴더").mkdir()
+    browser._refresh()
+
+    _choose_menu_action(browser, "빈폴더")
+
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert _wait_until(lambda: browser.findChild(_Toast) is not None)
+    assert browser.findChild(_Toast).text() == "폴더를 Pub 폴더로 복사했습니다"
+
+
+def test_folder_copy_during_copy_shows_toast(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """복사 중에 폴더 복사를 요청하면 알림만 띄우는지 확인한다."""
+    folder = _make_work_folder(project)
+    browser._copy_worker = object()
+
+    browser._start_folder_copy(folder)
+
+    assert browser.findChild(_Toast).text() == "복사 중입니다"
+    assert not (project / "Pub").exists()
+    browser._copy_worker = None
+
+
+@pytest.mark.parametrize("parts", [("Reference",), ("Document",), ("Pub",)])
+def test_folder_in_other_places_has_no_pub_menu(
+    browser: FolderBrowser, project: Path, parts: tuple[str, ...]
+) -> None:
+    """Work 밖의 폴더에는 Pub 메뉴가 나오지 않는지 확인한다."""
+    folder = project.joinpath(*parts)
+    (folder / "자료").mkdir(parents=True)
+    browser._navigate_to(folder)
+
+    texts = [text for text, _handler in browser._menu_entries(None, "자료")]
+
+    assert PUB_MENU_TEXT not in texts
+
+
+def test_detail_menu_on_folder_copies_folder(
+    browser: FolderBrowser, project: Path
+) -> None:
+    """자세히 보기의 폴더 메뉴로도 복사되는지 확인한다."""
+    _make_work_folder(project)
+    browser._refresh()
+    browser.set_view_mode(ViewMode.DETAILS)
+    tree = browser.findChild(QTreeWidget)
+    item = tree.findItems("시안1", Qt.MatchFlag.MatchExactly)[0]
+
+    with patch("ui.folder_browser.QMenu", _FakeMenu):
+        browser._on_tree_context_menu(tree.visualItemRect(item).center())
+
+    assert _wait_until(lambda: browser._copy_worker is None)
+    assert _names(project / "Pub" / "Image" / "시안1") == {"x.png", "y.mp4"}
 
 
 def test_detail_menu_copies_selected(
