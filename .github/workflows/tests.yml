@@ -29,9 +29,9 @@ jobs:
       - shell: bash
         run: |
           set -o pipefail
-          python -X faulthandler -m pytest -q --tb=short --basetemp=.pytest_tmp -o faulthandler_timeout=120 2>&1 | tee pytest_output.txt
+          python -u -X faulthandler -m pytest -v --tb=short --basetemp=.pytest_tmp -o faulthandler_timeout=120 2>&1 | tee pytest_output.txt
       # 실패 내용을 주석으로 남긴다. 주석은 로그인 없이 읽을 수 있다.
-      - if: failure() && runner.os == 'Windows'
+      - if: failure()
         shell: bash
         run: |
           python - <<'EOF'
@@ -39,7 +39,9 @@ jobs:
           text = Path("pytest_output.txt").read_text(encoding="utf-8", errors="replace")
           marker = "short test summary info"
           summary = text[text.rfind(marker):] if marker in text else ""
-          body = (summary + "\n" + text)[:35000]
+          # 프로세스가 죽으면 마지막 줄에 그때 돌던 테스트가 남으므로 뒤쪽을 남긴다.
+          tail_size = max(35000 - len(summary) - 1, 0)
+          body = (summary + "\n" + text[-tail_size:])[:35000]
           for start in range(0, len(body), 3500):
               chunk = body[start:start + 3500]
               chunk = chunk.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
