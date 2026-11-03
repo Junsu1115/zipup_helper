@@ -113,21 +113,83 @@ def test_same_name_original_is_not_overwritten(
     assert not (project / "Document" / "PPT_Break" / "media").exists()
 
 
-def test_second_pptx_saves_original_but_skips_existing_media(
+def test_next_pptx_goes_to_numbered_media_folder(
     project: Path, source: Path, tmp_path: Path
 ) -> None:
-    """이미 media가 있으면 두 번째 원본만 저장하고 사진은 덮어쓰지 않는지 확인한다."""
+    """PPT를 넣을 때마다 media2, media3에 꺼내고 앞의 폴더는 그대로인지 확인한다."""
     second = _make_pptx(tmp_path / "회사소개.pptx", {"image1.png": b"OTHER"})
+    third = _make_pptx(tmp_path / "시안.pptx", {"image1.png": b"THIRD"})
 
-    summary = import_pptx_files([source, second], project)
+    summary = import_pptx_files([source, second, third], project)
 
     document = project / "Document"
-    assert summary.imported_count == 1
-    assert summary.media_count == 2
-    assert "이미 있어" in summary.failures[0]
-    assert _names(document / "PPT_ORG") == {"제안서.pptx", "회사소개.pptx"}
-    media = document / "PPT_Break" / "media"
-    assert (media / "image1.png").read_bytes() == b"PNG1"
+    assert summary.imported_count == 3
+    assert summary.media_count == 4
+    assert summary.failures == []
+    assert _names(document / "PPT_ORG") == {"제안서.pptx", "회사소개.pptx", "시안.pptx"}
+    breaks = document / "PPT_Break"
+    assert _names(breaks) == {"media", "media2", "media3"}
+    assert (breaks / "media" / "image1.png").read_bytes() == b"PNG1"
+    assert (breaks / "media2" / "image1.png").read_bytes() == b"OTHER"
+    assert (breaks / "media3" / "image1.png").read_bytes() == b"THIRD"
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [
+        (["media", "media3"], "media4"),
+        (["media3"], "media4"),
+        (["media_old", "media시안", "media2a", "old_media5"], "media"),
+        (["media", "media_old"], "media2"),
+        (["media", "media9", "media10"], "media11"),
+    ],
+)
+def test_media_folder_number_follows_highest(
+    project: Path, source: Path, existing: list[str], expected: str
+) -> None:
+    """가장 큰 번호 다음을 쓰고, 뒤에 숫자만 있는 이름만 번호로 세는지 확인한다."""
+    breaks = project / "Document" / "PPT_Break"
+    for name in existing:
+        (breaks / name).mkdir(parents=True)
+
+    import_pptx_files([source], project)
+
+    assert _names(breaks) == {*existing, expected}
+    assert _names(breaks / expected) == {"image1.png", "image2.jpg"}
+
+
+def test_media_number_ignores_letter_case(project: Path, source: Path) -> None:
+    """대소문자만 다른 이름도 번호로 세어 이름이 겹치지 않는지 확인한다."""
+    breaks = project / "Document" / "PPT_Break"
+    (breaks / "MEDIA2").mkdir(parents=True)
+
+    import_pptx_files([source], project)
+
+    assert (breaks / "media3" / "image1.png").exists()
+
+
+def test_file_named_like_media_folder_is_counted(project: Path, source: Path) -> None:
+    """같은 이름의 일반 파일이 있어도 폴더 만들기가 실패하지 않는지 확인한다."""
+    breaks = project / "Document" / "PPT_Break"
+    breaks.mkdir(parents=True)
+    (breaks / "media").write_bytes(b"file")
+
+    summary = import_pptx_files([source], project)
+
+    assert summary.failures == []
+    assert (breaks / "media2" / "image1.png").exists()
+
+
+def test_pptx_without_media_does_not_use_number(
+    project: Path, source: Path, tmp_path: Path
+) -> None:
+    """사진이 없는 PPT는 번호를 쓰지 않아 다음 PPT가 media2를 쓰는지 확인한다."""
+    empty = _make_pptx(tmp_path / "빈.pptx", media={})
+    second = _make_pptx(tmp_path / "회사소개.pptx")
+
+    import_pptx_files([source, empty, second], project)
+
+    assert _names(project / "Document" / "PPT_Break") == {"media", "media2"}
 
 
 def test_pptx_without_media_saves_original_only(
@@ -326,19 +388,19 @@ def test_answering_no_saves_nothing(
     assert _names(tmp_path / "root" / "test") == set()
 
 
-def test_multiple_files_show_count_and_warn_about_existing_media(
+def test_multiple_files_show_count_and_save_to_numbered_folders(
     window: MainWindow, source: Path, tmp_path: Path
 ) -> None:
-    """여러 개를 놓으면 개수를 표시하고, 두 번째 사진 건너뜀을 경고하는지 확인한다."""
+    """여러 개를 놓으면 개수를 표시하고, 경고 없이 번호 폴더에 꺼내는지 확인한다."""
     second = _make_pptx(tmp_path / "회사소개.pptx")
 
     confirm_mock, warn_mock = _drop(window, [source, second])
 
     assert confirm_mock.call_args.args[2] == "'test' 프로젝트에 PPT 2개를 저장하시겠습니까?"
-    warn_mock.assert_called_once()
-    assert "회사소개.pptx" in warn_mock.call_args.args[2]
+    warn_mock.assert_not_called()
     document = tmp_path / "root" / "test" / "Document"
     assert _names(document / "PPT_ORG") == {"제안서.pptx", "회사소개.pptx"}
+    assert _names(document / "PPT_Break") == {"media", "media2"}
 
 
 def test_legacy_ppt_only_shows_guidance_without_confirm(

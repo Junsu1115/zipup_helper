@@ -1,5 +1,6 @@
 """PPTX 원본을 프로젝트에 저장하고, 안의 media 폴더를 꺼낸다."""
 
+import re
 import shutil
 import zipfile
 import zlib
@@ -11,6 +12,8 @@ DOCUMENT_FOLDER = "Document"
 ORIGINAL_FOLDER = "PPT_ORG"
 BREAK_FOLDER = "PPT_Break"
 MEDIA_FOLDER = "media"
+# Mac과 Windows는 보통 대소문자를 구분하지 않으므로 Media2도 같은 번호로 센다.
+MEDIA_NAME_PATTERN = re.compile(rf"{MEDIA_FOLDER}([0-9]*)", re.IGNORECASE)
 PPTX_MEDIA_PREFIX = "ppt/media/"
 PPTX_SUFFIX = ".pptx"
 LEGACY_PPT_SUFFIX = ".ppt"
@@ -58,9 +61,22 @@ def _media_file_name(member_name: str) -> str | None:
     return None if name in ("", ".", "..") else name
 
 
+def _next_media_folder(break_folder: Path) -> Path:
+    """사진을 꺼낼 새 폴더 경로를 반환한다. media, media2, media3 순서로 이름을 정한다.
+
+    비어 있는 번호를 다시 쓰지 않도록 가장 큰 번호에 1을 더한다.
+    """
+    highest = 0
+    for item in break_folder.iterdir():
+        match = MEDIA_NAME_PATTERN.fullmatch(item.name)
+        if match:
+            highest = max(highest, int(match.group(1) or 1))
+    name = f"{MEDIA_FOLDER}{highest + 1}" if highest else MEDIA_FOLDER
+    return break_folder / name
+
+
 def _extract_media(pptx: Path, break_folder: Path) -> int:
-    """PPTX 안의 media 파일을 break_folder/media에 꺼내고, 꺼낸 파일 수를 반환한다."""
-    media_folder = break_folder / MEDIA_FOLDER
+    """PPTX 안의 media 파일을 break_folder의 새 폴더에 꺼내고, 꺼낸 파일 수를 반환한다."""
     try:
         with zipfile.ZipFile(pptx) as archive:
             members = [
@@ -72,11 +88,7 @@ def _extract_media(pptx: Path, break_folder: Path) -> int:
             members = [(member, name) for member, name in members if name]
             if not members:
                 return 0
-            if media_folder.exists():
-                raise PptxImportError(
-                    f"'{pptx.name}': 원본은 저장했지만, {BREAK_FOLDER}/{MEDIA_FOLDER} "
-                    "폴더가 이미 있어 사진을 꺼내지 않았습니다."
-                )
+            media_folder = _next_media_folder(break_folder)
             media_folder.mkdir()
             for member, name in members:
                 with archive.open(member) as source, (media_folder / name).open(
