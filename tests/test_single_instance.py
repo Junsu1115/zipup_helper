@@ -19,20 +19,21 @@ from ui.single_instance import SingleInstance, bring_to_front
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROCESS_TIMEOUT_SECONDS = 30
 
-# 잠금을 잡고 알림을 기다리다, 알림이 오면 정리 없이 곧바로 죽는 프로그램.
+NOTIFY_TIMEOUT_MS = 10000
+ACTIVATED_MARKER = "activated"
+
+# 잠금을 잡고 알림을 기다리다, 알림이 오면 표시 파일을 만드는 프로그램. 끄는 일은 테스트가 한다.
 _HOLDER_SCRIPT = """
-import os, sys
+import sys
 from pathlib import Path
 from PySide6.QtCore import QCoreApplication
 from ui.single_instance import SingleInstance
 
 app = QCoreApplication([])
-instance = SingleInstance(Path(sys.argv[1]), sys.argv[2])
+folder = Path(sys.argv[1])
+instance = SingleInstance(folder, sys.argv[2])
 assert instance.acquire()
-def on_activation():
-    print("activated", flush=True)
-    os._exit(0)
-instance.activation_requested.connect(on_activation)
+instance.activation_requested.connect(lambda: (folder / sys.argv[3]).touch())
 print("ready", flush=True)
 app.exec()
 """
@@ -74,7 +75,7 @@ def _wait_until(condition: Callable[[], bool], timeout_ms: int = 3000) -> bool:
 def _start_holder(folder: Path, name: str) -> subprocess.Popen[str]:
     """잠금을 잡은 별도 프로세스를 띄우고, 준비될 때까지 기다린다."""
     process = subprocess.Popen(
-        [sys.executable, "-c", _HOLDER_SCRIPT, str(folder), name],
+        [sys.executable, "-c", _HOLDER_SCRIPT, str(folder), name, ACTIVATED_MARKER],
         cwd=PROJECT_ROOT,
         stdout=subprocess.PIPE,
         text=True,
@@ -145,8 +146,8 @@ def test_other_process_is_blocked_and_notified(
     try:
         assert not second.acquire()
         assert second.notify_running()
-        output, _ = holder.communicate(timeout=PROCESS_TIMEOUT_SECONDS)
-        assert "activated" in output
+        marker = tmp_path / ACTIVATED_MARKER
+        assert _wait_until(marker.exists, NOTIFY_TIMEOUT_MS)
     finally:
         holder.kill()
         holder.wait(timeout=PROCESS_TIMEOUT_SECONDS)
